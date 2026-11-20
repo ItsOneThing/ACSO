@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appunti ACSO Modulo 2</title>
+<link rel="stylesheet" href="style/style.css">
+</head>
+<body>
+<section class="hero">
+  <div style="font-size:13px;color:var(--accent);font-weight:700;letter-spacing:.05em;text-transform:uppercase">Architettura dei Calcolatori e Sistemi Operativi · Modulo 2</div>
+  <h1>Appunti</h1>
+  <p>Spiegazione e riscrittura delle lezioni 1–4 (dalle dispense del Prof. Pelagatti, lucidi della Prof.ssa Silvano). Ogni pagina ha un indice laterale, gli esempi di codice commentati e un riassunto finale.</p>
+</section>
+
+<div class="legend">
+  <span class="def" style="background:var(--accent-soft)">Definizione</span>
+  <span class="note" style="background:var(--note-bg)">Da ricordare</span>
+  <span class="warn" style="background:var(--warn-bg)">Attenzione / errore</span>
+  <span class="ok" style="background:var(--ok-bg)">Soluzione</span>
+</div>
+
+<div class="cards">
+  <a class="card" href="capitoli/L01-processi-parallelismo.html">
+    <span class="num">LEZIONE 1</span>
+    <h2>Processi e parallelismo</h2>
+    <p>Il sistema operativo come creatore di parallelismo e le system call per gestire i processi.</p>
+    <ul>
+      <li>SO, virtualizzazione, system call</li>
+      <li>PID, gerarchia, segmenti di memoria</li>
+      <li><code>fork</code>, <code>getpid</code>, <code>exit</code></li>
+      <li><code>wait</code>, <code>waitpid</code>, processi zombie</li>
+      <li><code>exec</code> e fork + exec</li>
+    </ul>
+  </a>
+  <a class="card" href="capitoli/L02-thread.html">
+    <span class="num">LEZIONE 2</span>
+    <h2>Thread</h2>
+    <p>Cosa sono i thread, cosa condividono, come si creano e si attendono con la libreria pthread.</p>
+    <ul>
+      <li>Esecuzione sequenziale vs concorrente</li>
+      <li>PID, thread ID e TGID</li>
+      <li><code>pthread_create</code> e <code>pthread_join</code></li>
+      <li>Variabili locali, globali e static</li>
+      <li>Thread vs processi</li>
+    </ul>
+  </a>
+  <a class="card" href="capitoli/L03-programmazione-concorrente.html">
+    <span class="num">LEZIONE 3</span>
+    <h2>Programmazione concorrente</h2>
+    <p>Perché i programmi multi-thread sbagliano e come si rimedia.</p>
+    <ul>
+      <li>Sequenze critiche e istruzioni atomiche</li>
+      <li>Mutex e mutua esclusione</li>
+      <li>Deadlock e grafo delle risorse</li>
+      <li>Semafori e sincronizzazione</li>
+      <li>Produttore / consumatore</li>
+    </ul>
+  </a>
+  <a class="card" href="capitoli/L04-introduzione-linux.html">
+    <span class="num">LEZIONE 4</span>
+    <h2>Introduzione a Linux</h2>
+    <p>Come è organizzato il sistema operativo e come rappresenta i processi.</p>
+    <ul>
+      <li>Time-sharing, preemption, scheduler</li>
+      <li>Architettura a strati, SMP</li>
+      <li>Kernel non-preemptable</li>
+      <li>Kernel module (<code>insmod</code>/<code>rmmod</code>)</li>
+      <li><code>task_struct</code> e pila di sistema</li>
+    </ul>
+  </a>
+</div>
+</body>
+</html>
