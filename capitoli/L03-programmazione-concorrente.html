@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L03 · Programmazione concorrente</title>
+<link rel="stylesheet" href="../style/style.css">
+</head>
+<body>
+<div class="topbar"><div class="topbar-inner">
+  <a class="home" href="../index.html">← Appunti ACSO · Modulo 2</a>
+  <a href="L01-processi-parallelismo.html">L01 Processi</a>
+  <a href="L02-thread.html">L02 Thread</a>
+  <a class="active" href="L03-programmazione-concorrente.html">L03 Concorrenza</a>
+  <a href="L04-introduzione-linux.html">L04 Linux</a>
+</div></div>
+
+<div class="layout">
+<nav class="toc">
+  <h4>In questa lezione</h4>
+  <ol>
+    <li><a href="#intro">1. Il modello concorrente</a></li>
+    <li><a href="#es1">2. Esempio xyz / abc</a></li>
+    <li><a href="#correttezza">3. Correttezza</a></li>
+    <li><a href="#critica">4. Sequenza critica</a></li>
+    <li><a href="#conti">5. Esempio conti correnti</a></li>
+    <li><a href="#atomiche">6. Istruzioni atomiche</a></li>
+    <li><a href="#mutex">7. Mutex</a></li>
+    <li><a href="#deadlock">8. Deadlock</a></li>
+    <li><a href="#semafori">9. Semafori</a></li>
+    <li><a href="#axbycz">10. Esempio axbycz</a></li>
+    <li><a href="#prodcons">11. Produttore / consumatore</a></li>
+    <li><a href="#riassunto">Riassunto</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="lesson">
+  <div class="tag">Lezione 3</div>
+  <h1>Programmazione concorrente</h1>
+  <p class="sub">Cap. P3 delle dispense Pelagatti — perché i programmi multi-thread possono dare risultati sbagliati e come si rimedia con mutex e semafori.</p>
+</header>
+
+<h2 id="intro">1. Il modello di programmazione concorrente</h2>
+<div class="grid2">
+  <div><h4>Modello sequenziale</h4><ul>
+    <li>Istruzioni eseguite in un ordine <strong>prevedibile</strong>, che dipende dal codice e dai dati in ingresso.</li>
+  </ul></div>
+  <div><h4>Modello concorrente / parallelo</h4><ul>
+    <li>Più flussi di controllo in parallelo che <strong>interferiscono</strong> (condividono risorse, es. le stesse strutture dati).</li>
+    <li>Ordine di esecuzione <strong>non deterministico</strong>.</li>
+    <li>Il risultato dipende dai dati <strong>e dall'ordine di esecuzione</strong> → può influire sulla <strong>correttezza</strong>.</li>
+  </ul></div>
+</div>
+<ul>
+  <li>Le tecniche valgono per processi e thread, ma si usano soprattutto con i <strong>thread</strong>, che sono fortemente cooperanti perché condividono lo spazio di indirizzamento (tranne la pila).</li>
+  <li>Un programma multi-thread è potenzialmente <strong>non deterministico anche a parità di input</strong>: non si può prevedere la prossima istruzione eseguita e possono comparire errori dovuti proprio alla concorrenza.</li>
+</ul>
+<div class="box def"><span class="t">Notazione</span>
+Date due attività <em>A<sub>i</sub></em> e <em>B<sub>j</sub></em>, scriviamo <em>A<sub>i</sub> &lt; B<sub>j</sub></em> per "A<sub>i</sub> avviene prima di B<sub>j</sub>".<br>
+<strong>Sequenziali</strong>: vale sempre A<sub>i</sub> &lt; B<sub>j</sub>, oppure sempre B<sub>j</sub> &lt; A<sub>i</sub>.<br>
+<strong>Concorrenti</strong>: a volte A<sub>i</sub> &lt; B<sub>j</sub>, a volte B<sub>j</sub> &lt; A<sub>i</sub> (non determinismo temporale).<br>
+<em>t<sub>i.j</sub></em> = istruzione <em>j</em> eseguita dal thread <em>i</em>.</div>
+
+<h2 id="es1">2. Esempio 1: due thread che stampano</h2>
+<pre><code><span class="k">void</span> *tf1(<span class="k">void</span> *arg) { printf("x"); printf("y"); printf("z"); <span class="k">return</span> NULL; }
+<span class="k">void</span> *tf2(<span class="k">void</span> *arg) { printf("a"); printf("b"); printf("c"); <span class="k">return</span> NULL; }
+
+<span class="k">int</span> main(<span class="k">void</span>) {
+   pthread_t tID1, tID2;
+   pthread_create(&amp;tID1, NULL, tf1, NULL);
+   pthread_create(&amp;tID2, NULL, tf2, NULL);
+   pthread_join(tID1, NULL);
+   pthread_join(tID2, NULL);
+   printf("\nfine\n");
+   <span class="k">return</span> 0;
+}</code></pre>
+<p>Ogni thread è <strong>sequenziale al suo interno</strong>, ma i due thread sono <strong>in concorrenza tra loro</strong>. Le stampe si possono mescolare (es. <code>xaybzc</code>, <code>abxcyz</code>, <code>xyzabc</code>…), però viene sempre rispettato l'<strong>ordinamento parziale</strong>:</p>
+<pre><code>x &lt; y &lt; z        a &lt; b &lt; c</code></pre>
+<p><code>fine</code> viene sempre stampato per ultimo, perché <code>main</code> fa prima le due <code>join</code>.</p>
+
+<h2 id="correttezza">3. Correttezza di un programma concorrente</h2>
+<ul>
+  <li><strong>Dimostrazione formale</strong> (logica formale): molto difficile.</li>
+  <li><strong>Testing</strong> (provo input e controllo output): funziona bene per programmi sequenziali, ma in quelli concorrenti l'output dipende anche dall'<strong>ordine di esecuzione</strong>, che cambia da un'esecuzione all'altra. Un test che passa 1000 volte non garantisce che passi la 1001ª.</li>
+</ul>
+<p>Servono quindi costrutti di programmazione appositi per affrontare tre problemi:</p>
+<ol>
+  <li><strong>Sequenze critiche e mutua esclusione</strong> (mutex)</li>
+  <li><strong>Deadlock</strong></li>
+  <li><strong>Sincronizzazione</strong> (semafori)</li>
+</ol>
+
+<h2 id="critica">4. Sequenza critica e mutua esclusione</h2>
+<div class="box def"><span class="t">Sequenza critica</span>
+Sequenza di istruzioni eseguita da thread paralleli che <strong>non deve essere "mescolata"</strong> con le istruzioni degli altri thread, altrimenti il risultato può essere sbagliato.</div>
+<p>Bisogna <strong>sequenzializzare</strong> la sequenza critica tra i thread: se un thread inizia la sequenza critica, deve eseguirla <strong>tutta</strong> prima che un qualunque altro thread possa iniziarla. (Si riduce la concorrenza, ma si guadagna correttezza.)</p>
+<div class="box def"><span class="t">Mutua esclusione</span>
+La proprietà che vogliamo garantire sulle sequenze critiche: <strong>al massimo un thread alla volta</strong> le sta eseguendo.</div>
+<p>Se nell'esempio 1 le tre <code>printf</code> di ciascun thread formano una sequenza critica, gli unici output ammessi sono:</p>
+<pre><code>xyzabc        oppure        abcxyz
+fine                        fine</code></pre>
+
+<h2 id="conti">5. Esempio 2: trasferimento tra conti correnti</h2>
+<p>Due conti, <code>contoA</code> e <code>contoB</code> (variabili <strong>globali</strong>). La funzione <code>trasferisci()</code> preleva un importo da B e lo deposita su A. La somma dei due conti deve restare invariata: è l'<strong>invariante</strong> della funzione.</p>
+<pre><code><span class="k">int</span> contoA = 100, contoB = 200;
+<span class="k">int</span> totale;
+
+<span class="k">void</span> *trasferisci(<span class="k">void</span> *arg) {
+   <span class="k">int</span> importo = * ((<span class="k">int</span> *) arg);
+   <span class="k">int</span> cA, cB;
+   <span class="c">// inizio sequenza critica</span>
+   cA = contoA;              <span class="c">// 1. leggi contoA in var. locale</span>
+   cB = contoB;              <span class="c">// 2. leggi contoB in var. locale</span>
+   contoA = cA + importo;    <span class="c">// 3. aggiorna contoA</span>
+   contoB = cB - importo;    <span class="c">// 4. aggiorna contoB</span>
+   <span class="c">// fine sequenza critica</span>
+   <span class="k">return</span> NULL;
+}
+
+<span class="k">int</span> main(<span class="k">void</span>) {
+   pthread_t tID1, tID2;
+   <span class="k">int</span> importo1 = 10, importo2 = 20;
+   pthread_create(&amp;tID1, NULL, trasferisci, &amp;importo1);
+   pthread_create(&amp;tID2, NULL, trasferisci, &amp;importo2);
+   pthread_join(tID1, NULL);
+   pthread_join(tID2, NULL);
+   totale = contoA + contoB;
+   printf("contoA = %d contoB = %d\n", contoA, contoB);
+   printf("il totale è %d\n", totale);
+   <span class="k">return</span> 0;
+}</code></pre>
+<p>Valori iniziali A = 100, B = 200. t1 trasferisce 10, t2 trasferisce 20. Risultato corretto atteso: <strong>A = 130, B = 170, totale 300</strong>.</p>
+<p>Alcune possibili sequenze:</p>
+<ul>
+  <li><strong>S1</strong> <code>t1.1 &lt; t1.2 &lt; t1.3 &lt; t1.4 &lt; t2.1 &lt; t2.2 &lt; t2.3 &lt; t2.4</code> → corretta</li>
+  <li><strong>S2</strong> <code>t2.1 … t2.4 &lt; t1.1 … t1.4</code> → corretta</li>
+  <li><strong>S3</strong> <code>t1.1 &lt; t1.2 &lt; t1.3 &lt; t2.1 &lt; t2.2 &lt; t2.3 &lt; t2.4 &lt; t1.4</code> → <strong>sbagliata</strong>:</li>
+</ul>
+<table>
+<tr><th>dopo</th><th>inizio</th><th>t1.1</th><th>t1.2</th><th>t1.3</th><th>t2.1</th><th>t2.2</th><th>t2.3</th><th>t2.4</th><th>t1.4</th></tr>
+<tr><td><strong>contoA</strong></td><td>100</td><td></td><td></td><td>110</td><td></td><td></td><td>130</td><td></td><td></td></tr>
+<tr><td><strong>contoB</strong></td><td>200</td><td></td><td></td><td></td><td></td><td></td><td></td><td>180</td><td><strong>190</strong></td></tr>
+<tr><td>cA (t1)</td><td></td><td>100</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td>cB (t1)</td><td></td><td></td><td>200</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td>cA (t2)</td><td></td><td></td><td></td><td></td><td>110</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>cB (t2)</td><td></td><td></td><td></td><td></td><td></td><td>200</td><td></td><td></td><td></td></tr>
+</table>
+<div class="box warn"><span class="t">Cosa è andato storto</span>
+t2 legge <code>contoB</code> (= 200) <strong>prima</strong> che t1 lo abbia aggiornato. Alla fine t1 scrive <code>contoB = 200 − 10 = 190</code>, <strong>sovrascrivendo</strong> l'aggiornamento di t2. Risultato: A = 130, B = 190, totale <strong>320</strong> → sono "comparsi" 20 euro. L'invariante è violato.</div>
+<p>Questo tipo di errore si chiama in generale <em>race condition</em>: il risultato dipende da chi "vince la corsa".</p>
+
+<h2 id="atomiche">6. Istruzioni atomiche</h2>
+<p>Supponiamo di riscrivere il trasferimento con due sole istruzioni:</p>
+<pre><code>a.  contoA = contoA + importo;
+b.  contoB = contoB - importo;</code></pre>
+<p>Se ciascuna di <code>a</code> e <code>b</code> fosse <strong>atomica</strong> (indivisibile), <strong>qualsiasi</strong> intreccio dei due thread darebbe il risultato corretto, non solo quelli ovvi (<code>t1.a &lt; t1.b &lt; t2.a &lt; t2.b</code>) ma anche ad esempio <code>t1.a &lt; t2.a &lt; t1.b &lt; t2.b</code> o <code>t1.a &lt; t2.a &lt; t2.b &lt; t1.b</code>: somme e sottrazioni commutano, quindi alla fine A = 130 e B = 170.</p>
+<h3>Ma le istruzioni di alto livello non sono atomiche</h3>
+<ul>
+  <li>Il compilatore traduce ogni istruzione C in una <strong>sequenza</strong> di istruzioni macchina.</li>
+  <li>Sono atomiche solo le <strong>singole istruzioni in linguaggio macchina</strong>, non quelle di alto livello.</li>
+  <li>Il programmatore dovrebbe quindi sapere come il C viene tradotto.</li>
+</ul>
+<p><code>contoA = contoA + 100</code> può diventare:</p>
+<div class="grid2">
+  <div><h4>Processore che opera in memoria (es. Intel)</h4>
+<pre style="margin:0"><code>ADD contoA, 100   <span class="c">// 1 istruzione: atomica</span></code></pre></div>
+  <div><h4>Processore load/store (es. RISC-V)</h4>
+<pre style="margin:0"><code>ld   t0, contoA     <span class="c">// carica in t0</span>
+addi t0, t0, 100    <span class="c">// somma</span>
+sd   t0, contoA     <span class="c">// salva</span></code></pre>
+  Tre istruzioni: un altro thread può intervenire in mezzo → <strong>non atomica</strong>.</div>
+</div>
+<p>Lo stesso vale per il <code>conta++</code> su variabile globale della <a href="L02-thread.html#esempi-var">Lezione 2</a>.</p>
+
+<h2 id="mutex">7. Soluzione: la mutua esclusione con il mutex</h2>
+<p>Per garantire la correttezza di sequenze critiche (o istruzioni non atomiche) serve la <strong>mutua esclusione</strong>. In pthread il costrutto è il <strong>mutex</strong>:</p>
+<ul>
+  <li>è come un <strong>lucchetto</strong> che racchiude la sequenza critica, con un segnale di "occupato";</li>
+  <li><strong>lock</strong>: un thread chiude il lucchetto ed entra; gli altri thread che provano a entrare <strong>restano in attesa</strong>;</li>
+  <li><strong>unlock</strong>: il thread rilascia il lucchetto e uno di quelli in attesa può entrare.</li>
+</ul>
+<table>
+<tr><th>Passo</th><th>Codice</th></tr>
+<tr><td>Dichiarare</td><td><code>pthread_mutex_t mx;</code> (globale, così la vedono tutti i thread)</td></tr>
+<tr><td>Inizializzare</td><td><code>pthread_mutex_init(&amp;mx, NULL);</code></td></tr>
+<tr><td>Entrare</td><td><code>pthread_mutex_lock(&amp;mx);</code></td></tr>
+<tr><td>Uscire</td><td><code>pthread_mutex_unlock(&amp;mx);</code></td></tr>
+</table>
+
+<h3>Esempio 1 con mutex</h3>
+<pre><code>pthread_mutex_t mx;
+
+<span class="k">void</span> *tf1(<span class="k">void</span> *arg) {
+   <span class="hl">pthread_mutex_lock(&amp;mx);</span>
+   printf("x"); printf("y"); printf("z");
+   <span class="hl">pthread_mutex_unlock(&amp;mx);</span>
+   <span class="k">return</span> NULL;
+}
+<span class="k">void</span> *tf2(<span class="k">void</span> *arg) {
+   <span class="hl">pthread_mutex_lock(&amp;mx);</span>
+   printf("a"); printf("b"); printf("c");
+   <span class="hl">pthread_mutex_unlock(&amp;mx);</span>
+   <span class="k">return</span> NULL;
+}
+<span class="c">// nel main, prima di creare i thread:</span>
+pthread_mutex_init(&amp;mx, NULL);</code></pre>
+<p>Output: solo <code>xyzabc</code> oppure <code>abcxyz</code>.</p>
+
+<h3>Esempio 2 (conti) con mutex</h3>
+<pre><code>pthread_mutex_t conti;
+
+<span class="k">void</span> *trasferisci(<span class="k">void</span> *arg) {
+   <span class="k">int</span> importo = * ((<span class="k">int</span> *) arg);
+   <span class="k">int</span> cA, cB;
+   <span class="hl">pthread_mutex_lock(&amp;conti);</span>
+   cA = contoA;
+   cB = contoB;
+   contoA = cA + importo;
+   contoB = cB - importo;
+   <span class="hl">pthread_mutex_unlock(&amp;conti);</span>
+   <span class="k">return</span> NULL;
+}</code></pre>
+<p>Ora un thread non può leggere i conti mentre l'altro li sta aggiornando: il risultato è sempre A = 130, B = 170, totale 300.</p>
+<div class="box note"><span class="t">Schema generale</span>
+<pre style="margin:0;background:transparent;border:0;padding:0"><code>pthread_mutex_lock(&amp;m);
+   <span class="c">/* sequenza critica: accesso ai dati condivisi */</span>
+pthread_mutex_unlock(&amp;m);</code></pre>
+Con due thread che stampano "entro / termino seq critica", le due righe di un thread compaiono sempre <strong>consecutive</strong>.</div>
+
+<h2 id="deadlock">8. Deadlock e mutex</h2>
+<div class="box def"><span class="t">Deadlock (attesa circolare)</span>
+Si verifica quando due thread devono bloccare <strong>due risorse A e B</strong> (con due mutex diversi) ma le bloccano <strong>in ordine inverso</strong>:
+<ul><li>thread_1 ha bloccato A e aspetta B;</li><li>thread_2 ha bloccato B e aspetta A.</li></ul>
+Nessuno dei due può proseguire: il programma resta bloccato per sempre e va terminato dall'esterno.</div>
+
+<h3>Grafo di accesso alle risorse</h3>
+<p>Il deadlock corrisponde a un <strong>ciclo</strong> nel grafo di accesso alle risorse:</p>
+<ul>
+  <li>nodi = thread e risorse;</li>
+  <li>arco <strong>thread → risorsa</strong>: il thread è <em>in attesa</em> di bloccare la risorsa;</li>
+  <li>arco <strong>risorsa → thread</strong>: la risorsa <em>è bloccata</em> da quel thread.</li>
+</ul>
+<figure>
+<svg viewBox="0 0 520 230" role="img" aria-label="Grafo con ciclo: A bloccata da t1, t1 attende B, B bloccata da t2, t2 attende A">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--text)"/></marker></defs>
+  <circle cx="110" cy="60" r="30" class="svg-acc"/><text x="110" y="66" text-anchor="middle" class="svg-text" font-size="17" font-weight="700">t1</text>
+  <circle cx="410" cy="170" r="30" class="svg-acc"/><text x="410" y="176" text-anchor="middle" class="svg-text" font-size="17" font-weight="700">t2</text>
+  <rect x="80" y="140" width="60" height="60" rx="6" class="svg-box"/><text x="110" y="176" text-anchor="middle" class="svg-text" font-size="17" font-weight="700">A</text>
+  <rect x="380" y="30" width="60" height="60" rx="6" class="svg-box"/><text x="410" y="66" text-anchor="middle" class="svg-text" font-size="17" font-weight="700">B</text>
+  <path d="M110 140 L110 94" class="svg-line" marker-end="url(#ar)"/>
+  <text x="120" y="122" class="svg-muted" font-size="12">bloccata da</text>
+  <path d="M142 60 L376 60" class="svg-line" marker-end="url(#ar)" stroke-dasharray="6 4"/>
+  <text x="200" y="52" class="svg-muted" font-size="12">t1 attende B</text>
+  <path d="M410 90 L410 136" class="svg-line" marker-end="url(#ar)"/>
+  <text x="330" y="118" class="svg-muted" font-size="12">bloccata da</text>
+  <path d="M378 170 L144 170" class="svg-line" marker-end="url(#ar)" stroke-dasharray="6 4"/>
+  <text x="200" y="190" class="svg-muted" font-size="12">t2 attende A</text>
+</svg>
+<figcaption>Ciclo t1 → B → t2 → A → t1: deadlock. Linee tratteggiate = attesa, continue = risorsa bloccata.</figcaption>
+</figure>
+
+<h3>Esempio</h3>
+<pre><code>pthread_mutex_t mutexA, mutexB;
+
+<span class="k">void</span> *lockApoiB(<span class="k">void</span> *arg) {
+ 4.  pthread_mutex_lock(&amp;mutexA);
+ 5.  printf("thread%d: iniz1\n", (<span class="k">int</span>) arg);
+ 6.  pthread_mutex_lock(&amp;mutexB);
+ 7.  printf("thread%d: iniz2\n", (<span class="k">int</span>) arg);
+ 8.  printf("thread%d: fine 2\n", (<span class="k">int</span>) arg);
+ 9.  pthread_mutex_unlock(&amp;mutexB);
+10.  printf("thread%d: fine 1\n", (<span class="k">int</span>) arg);
+11.  pthread_mutex_unlock(&amp;mutexA);
+     <span class="k">return</span> NULL;
+}
+<span class="k">void</span> *lockBpoiA(<span class="k">void</span> *arg) {
+15.  pthread_mutex_lock(&amp;mutexB);
+16.  printf("thread%d: iniz2\n", (<span class="k">int</span>) arg);
+17.  pthread_mutex_lock(&amp;mutexA);
+18.  printf("thread%d: iniz1\n", (<span class="k">int</span>) arg);
+19.  printf("thread%d: fine 1\n", (<span class="k">int</span>) arg);
+20.  pthread_mutex_unlock(&amp;mutexA);
+21.  printf("thread%d: fine 2\n", (<span class="k">int</span>) arg);
+22.  pthread_mutex_unlock(&amp;mutexB);
+     <span class="k">return</span> NULL;
+}
+<span class="c">// main: init dei due mutex, t1 esegue lockApoiB, t2 esegue lockBpoiA, poi join</span></code></pre>
+<p>Il <code>main</code> crea t1 (che esegue <code>lockApoiB</code>) e t2 (che esegue <code>lockBpoiA</code>): due sequenze critiche annidate <strong>in ordine inverso</strong>.</p>
+<table>
+<tr><th>Sequenza</th><th>Cosa succede</th></tr>
+<tr><td><code>t1.4 &lt; t1.6 &lt; t1.9 &lt; t1.11 &lt; t2.15 &lt; t2.17 &lt; t2.20 &lt; t2.22</code></td><td><strong>OK</strong>: t1 blocca entrambi i mutex prima che t2 inizi (o viceversa)</td></tr>
+<tr><td><code>t1.4 &lt; t2.15 &lt; t1.6 &lt; t2.17</code></td><td><strong>Deadlock</strong>: t1 ha A, t2 ha B; t1 si blocca su B, t2 si blocca su A</td></tr>
+<tr><td><code>t2.15 &lt; t1.4 &lt; t2.17 &lt; t1.6</code></td><td><strong>Deadlock</strong>: stessa situazione, a ordine invertito</td></tr>
+</table>
+<div class="box ok"><span class="t">Come evitarlo (regola pratica)</span>
+Far acquisire i mutex a <strong>tutti i thread nello stesso ordine</strong> (es. sempre prima A poi B): così il ciclo nel grafo non può formarsi.</div>
+
+<h2 id="semafori">9. Sincronizzazione e semafori</h2>
+<div class="box def"><span class="t">Sincronizzazione</span>
+Una <strong>relazione temporale deterministica</strong> che si vuole imporre tra due o più thread (es. "B avviene sempre dopo A").</div>
+<p>Il costrutto è il <strong>semaforo</strong> (<code>&lt;semaphore.h&gt;</code>):</p>
+<ul>
+  <li>variabile di tipo <code>sem_t</code>;</li>
+  <li>inizializzato con <code>sem_init(&amp;sem1, 0, valore_iniziale)</code>: il secondo parametro per noi è <strong>sempre 0</strong>, il terzo è il valore iniziale;</li>
+  <li>si comporta come un <strong>intero ≥ 0</strong>.</li>
+</ul>
+<table>
+<tr><th>Operazione</th><th>Se valore == 0</th><th>Se valore &gt; 0</th></tr>
+<tr><td><code>sem_wait(&amp;s)</code></td><td>il thread <strong>si blocca</strong> finché un altro thread non fa <code>sem_post</code></td><td><strong>decrementa</strong> e prosegue</td></tr>
+<tr><td><code>sem_post(&amp;s)</code></td><td colspan="2"><strong>incrementa</strong> il valore e prosegue; se c'era un thread bloccato in <code>sem_wait</code>, eventualmente lo sblocca</td></tr>
+</table>
+<h3>Interpretazione: "numero di risorse disponibili"</h3>
+<ul>
+  <li>valore &gt; 0 = quante risorse sono libere, cioè quanti thread possono fare <code>sem_wait</code> senza bloccarsi;</li>
+  <li>valore = 0 = nessuna risorsa libera, possono esserci thread in attesa;</li>
+  <li><code>sem_post</code> = restituire una risorsa.</li>
+</ul>
+<div class="box note"><span class="t">Semaforo come mutex</span>
+Un semaforo <strong>inizializzato a 1</strong> funziona come un mutex: <code>sem_wait</code> per entrare nella sequenza critica (la segna occupata), <code>sem_post</code> per uscire (sblocca chi aspetta o riporta il valore a 1).</div>
+
+<h2 id="axbycz">10. Esempio: stampare esattamente "axbycz"</h2>
+<p>tf1 stampa x, y, z; tf2 stampa a, b, c. Vogliamo forzare l'alternanza <code>axbycz</code>. Servono <strong>due semafori, entrambi inizializzati a 0</strong>:</p>
+<ul>
+  <li><code>sem1</code> blocca il thread che stampa x, y, z;</li>
+  <li><code>sem2</code> blocca il thread che stampa a, b, c.</li>
+</ul>
+<pre><code><span class="k">#include</span> &lt;semaphore.h&gt;
+sem_t sem1, sem2;
+
+<span class="k">void</span> *tf1(<span class="k">void</span> *arg) {
+   sem_wait(&amp;sem1);                     <span class="c">// aspetto la 'a'</span>
+   printf("x");
+   sem_post(&amp;sem2); sem_wait(&amp;sem1);    <span class="c">// passo il turno, aspetto la 'b'</span>
+   printf("y");
+   sem_post(&amp;sem2); sem_wait(&amp;sem1);
+   printf("z");
+   <span class="k">return</span> NULL;
+}
+<span class="k">void</span> *tf2(<span class="k">void</span> *arg) {
+   printf("a");                         <span class="c">// parte subito</span>
+   sem_post(&amp;sem1); sem_wait(&amp;sem2);    <span class="c">// sblocco tf1, aspetto la 'x'</span>
+   printf("b");
+   sem_post(&amp;sem1); sem_wait(&amp;sem2);
+   printf("c");
+   sem_post(&amp;sem1);
+   <span class="k">return</span> NULL;
+}
+<span class="c">// nel main:</span>
+sem_init(&amp;sem1, 0, 0);
+sem_init(&amp;sem2, 0, 0);</code></pre>
+<p>Come funziona:</p>
+<ol>
+  <li>tf1 fa subito <code>sem_wait(&amp;sem1)</code>: sem1 = 0 → <strong>si blocca</strong>.</li>
+  <li>tf2 stampa <strong>a</strong>, fa <code>sem_post(&amp;sem1)</code> (sblocca tf1), poi <code>sem_wait(&amp;sem2)</code> → si blocca.</li>
+  <li>L'unico che può andare avanti è tf1: stampa <strong>x</strong>, <code>sem_post(&amp;sem2)</code> sblocca tf2, <code>sem_wait(&amp;sem1)</code> lo blocca.</li>
+  <li>…e così via a turno: <strong>a x b y c z</strong>.</li>
+</ol>
+<p>Le due funzioni sono <strong>asimmetriche</strong> perché si deve sempre cominciare con la "a".</p>
+
+<h2 id="prodcons">11. Esempio: produttore / consumatore</h2>
+<p>Caso classico: un <strong>buffer</strong> condiviso, un thread <strong>produttore</strong> che ci scrive caratteri e un thread <strong>consumatore</strong> che li legge. Versione semplice: il buffer contiene <strong>un solo carattere</strong>.</p>
+<p>Servono due semafori che descrivono lo stato del buffer:</p>
+<table>
+<tr><th>Semaforo</th><th>Valore iniziale</th><th>Chi blocca</th><th>Significato</th></tr>
+<tr><td><code>pieno</code></td><td>0</td><td>il consumatore</td><td>numero di caratteri pronti da leggere (all'inizio nessuno)</td></tr>
+<tr><td><code>vuoto</code></td><td>1</td><td>il produttore</td><td>numero di posti liberi nel buffer (all'inizio uno)</td></tr>
+</table>
+<pre><code><span class="k">char</span> buffer;
+<span class="k">int</span> fine = 0;
+sem_t pieno, vuoto;
+
+<span class="k">void</span> *scrivi(<span class="k">void</span> *arg) {          <span class="c">// PRODUTTORE</span>
+ 5.  <span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; 5; i++) {
+ 6.     sem_wait(&amp;vuoto);              <span class="c">// aspetto che il buffer sia libero</span>
+ 7.     buffer = 'a' + i;
+ 8.     sem_post(&amp;pieno);              <span class="c">// segnalo: c'è un carattere</span>
+     }
+10.  fine = 1;
+     <span class="k">return</span> NULL;
+}
+<span class="k">void</span> *leggi(<span class="k">void</span> *arg) {           <span class="c">// CONSUMATORE</span>
+     <span class="k">char</span> miobuffer;
+16.  <span class="k">while</span> (fine == 0) {
+17.     sem_wait(&amp;pieno);              <span class="c">// aspetto un carattere</span>
+18.     miobuffer = buffer;
+19.     sem_post(&amp;vuoto);              <span class="c">// libero il buffer</span>
+20.     printf("buffer contiene %.1s\n", &amp;miobuffer);
+     }
+     <span class="k">return</span> NULL;
+}
+<span class="c">// main: sem_init(&amp;pieno, 0, 0); sem_init(&amp;vuoto, 0, 1);  → buffer vuoto all'inizio</span></code></pre>
+<p>All'inizio il buffer è vuoto: parte il produttore, decrementa <code>vuoto</code>, scrive 'a', fa <code>post</code> su <code>pieno</code> sbloccando il consumatore, e così via. I caratteri prodotti sono a, b, c, d, e.</p>
+
+<div class="box warn"><span class="t">Errore: l'ultimo carattere può andare perso</span>
+Il produttore scrive 'e' (t1.7), fa <code>post</code> (t1.8), esce dal for e pone <code>fine = 1</code> (t1.10).
+Se <code>t1.10 &lt; t2.16</code>, cioè <code>fine</code> diventa 1 <strong>prima</strong> che il consumatore ricontrolli la condizione del while, il consumatore esce dal ciclo e <strong>'e' non viene mai letta</strong>.</div>
+
+<h3>Versione corretta</h3>
+<pre><code><span class="k">void</span> *scrivi(<span class="k">void</span> *arg) {
+   <span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; 5; i++) {
+      sem_wait(&amp;vuoto);
+      buffer = 'a' + i;
+      <span class="hl"><span class="k">if</span> (i == 4) fine = 1;           <span class="c">// segnalo la fine PRIMA della post</span></span>
+      sem_post(&amp;pieno);
+   }
+   <span class="k">return</span> NULL;
+}
+<span class="k">void</span> *leggi(<span class="k">void</span> *arg) {
+   <span class="k">char</span> miobuffer; <span class="k">int</span> i;
+   <span class="k">while</span> (fine == 0) {
+      sem_wait(&amp;pieno);
+      miobuffer = buffer;
+      sem_post(&amp;vuoto);
+      printf("buffer contiene %.1s\n", &amp;miobuffer);
+   }
+   <span class="hl">sem_getvalue(&amp;pieno, &amp;i);           <span class="c">// controllo per l'ultimo carattere</span></span>
+   <span class="hl"><span class="k">if</span> (i == 1) {                      <span class="c">// c'è ancora un carattere non letto</span></span>
+   <span class="hl">   miobuffer = buffer;</span>
+   <span class="hl">   printf("buffer contiene %.1s\n", &amp;miobuffer);</span>
+   <span class="hl">}</span>
+   <span class="k">return</span> NULL;
+}</code></pre>
+<p>Se il consumatore salta il ciclo che avrebbe letto 'e' (<code>fine = 1</code> prima del suo controllo del while), dopo il while vede con <code>sem_getvalue</code> che <code>pieno</code> vale 1, cioè c'è ancora un carattere da consumare, e <strong>rifà l'ultima lettura</strong>.</p>
+<div class="box note"><span class="t">Nota (mia, non nelle slide)</span>
+Anche la versione corretta ha un caso limite: se il consumatore controlla il while <em>dopo</em> <code>fine = 1</code> ma <em>prima</em> della <code>sem_post(&amp;pieno)</code> finale, <code>sem_getvalue</code> trova ancora 0 e la 'e' si perde. Una soluzione più robusta è far contare al consumatore i caratteri letti (es. <code>for (i = 0; i &lt; 5; i++)</code>) invece di usare la variabile <code>fine</code>.</div>
+
+<h2 id="riassunto">Riassunto</h2>
+<div class="summary"><ul>
+  <li>Concorrenza → ordine non deterministico → il risultato può cambiare da un'esecuzione all'altra; il testing non basta.</li>
+  <li><strong>Sequenza critica</strong>: codice che accede a dati condivisi e non va intrecciato con altri thread. Serve <strong>mutua esclusione</strong>.</li>
+  <li>Le istruzioni C <strong>non sono atomiche</strong> (es. <code>x = x + 1</code> → load / add / store).</li>
+  <li><strong>Mutex</strong>: <code>pthread_mutex_init</code>, <code>lock</code>, <code>unlock</code>; un thread alla volta nella sezione critica.</li>
+  <li><strong>Deadlock</strong>: due thread che prendono due mutex in ordine inverso → ciclo nel grafo delle risorse. Evitarlo prendendo i lock sempre nello stesso ordine.</li>
+  <li><strong>Semaforo</strong>: intero ≥ 0; <code>sem_wait</code> decrementa o blocca, <code>sem_post</code> incrementa e sblocca. Inizializzato a 1 = mutex; a 0 = "aspetta un segnale".</li>
+  <li>Esempi tipici: alternanza forzata (axbycz) e <strong>produttore/consumatore</strong> con semafori <code>pieno</code> (0) e <code>vuoto</code> (1).</li>
+</ul></div>
+
+<div class="pager">
+  <a href="L02-thread.html">← L02 Thread</a>
+  <a href="L04-introduzione-linux.html">L04 Introduzione a Linux →</a>
+</div>
+</main>
+</div>
+</body>
+</html>

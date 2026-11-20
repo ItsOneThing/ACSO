@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L04 · Introduzione a Linux</title>
+<link rel="stylesheet" href="../style/style.css">
+</head>
+<body>
+<div class="topbar"><div class="topbar-inner">
+  <a class="home" href="../index.html">← Appunti ACSO · Modulo 2</a>
+  <a href="L01-processi-parallelismo.html">L01 Processi</a>
+  <a href="L02-thread.html">L02 Thread</a>
+  <a href="L03-programmazione-concorrente.html">L03 Concorrenza</a>
+  <a class="active" href="L04-introduzione-linux.html">L04 Linux</a>
+</div></div>
+
+<div class="layout">
+<nav class="toc">
+  <h4>In questa lezione</h4>
+  <ol>
+    <li><a href="#applicazioni">1. Dove si usa Linux</a></li>
+    <li><a href="#evoluzione">2. Evoluzione</a></li>
+    <li><a href="#funzioni">3. Funzioni principali</a></li>
+    <li><a href="#architettura">4. Architettura a strati</a></li>
+    <li><a href="#processi">5. Processi e thread</a></li>
+    <li><a href="#scheduler">6. Context switch e scheduler</a></li>
+    <li><a href="#smp">7. Multi-processore (SMP)</a></li>
+    <li><a href="#preempt">8. Kernel non-preemptable</a></li>
+    <li><a href="#periferiche">9. Protezione e periferiche</a></li>
+    <li><a href="#moduli">10. Kernel module</a></li>
+    <li><a href="#modello">11. Modello semplificato e HW</a></li>
+    <li><a href="#strutture">12. task_struct e sPila</a></li>
+    <li><a href="#riassunto">Riassunto</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="lesson">
+  <div class="tag">Lezione 4</div>
+  <h1>Introduzione a Linux</h1>
+  <p class="sub">Cap. N1 delle dispense Pelagatti — a cosa serve il sistema operativo, come è organizzato Linux e quali strutture dati usa per rappresentare i processi.</p>
+</header>
+
+<h2 id="applicazioni">1. Dove si usa Linux</h2>
+<table>
+<tr><th>Settore</th><th>Situazione</th></tr>
+<tr><td>PC</td><td>dominato da Windows; Linux ha avuto un successo <strong>parziale</strong></td></tr>
+<tr><td>Server</td><td>il settore di <strong>maggior successo</strong>: Linux è il sistema dominante</td></tr>
+<tr><td>Sistemi embedded</td><td>uso in <strong>continua crescita</strong></td></tr>
+<tr><td>Sistemi real-time</td><td>in origine non supportati; l'adattamento è molto progredito</td></tr>
+<tr><td>Mobile</td><td>Linux è alla base di <strong>Android</strong></td></tr>
+</table>
+
+<h2 id="evoluzione">2. Evoluzione di Linux</h2>
+<ul>
+  <li>Il codice di Linux cresce in modo quasi <strong>esponenziale</strong>, soprattutto per il supporto a sempre <strong>nuove periferiche</strong>: i <strong>gestori di periferica (driver) sono più del 50% del codice</strong>.</li>
+  <li>Versioni 4.x rilasciate nel 2015 (4.0 ad aprile, 4.4 a dicembre).</li>
+  <li>Dalla 2.0 alla 2.6 la complessità è aumentata per:
+    <ul>
+      <li>il passaggio da strutture <strong>statiche</strong> (array) a strutture <strong>dinamiche</strong> → niente più limiti rigidi sulle dimensioni, sistema più adattabile;</li>
+      <li>il supporto alle <strong>architetture multiprocessore</strong>, con molti problemi di <strong>sincronizzazione</strong> (vedi <a href="L03-programmazione-concorrente.html">L03</a>).</li>
+    </ul>
+  </li>
+  <li>Dalla 2.6: interfaccia astratta del <strong>frame buffer</strong> della scheda grafica → le applicazioni grafiche possono accedervi senza conoscere i dettagli dell'hardware.</li>
+</ul>
+
+<h2 id="funzioni">3. Funzioni principali del sistema operativo</h2>
+<p>Linux realizza l'<strong>ambiente di esecuzione</strong> dei programmi, fatto da un insieme di processi, in modo che:</p>
+<ul>
+  <li>ogni processo esegua il suo programma <strong>sequenzialmente</strong>;</li>
+  <li>processi diversi procedano <strong>"in parallelo"</strong>;</li>
+  <li>un processo <strong>non possa disturbare</strong> gli altri (<strong>isolamento</strong>);</li>
+  <li>le risorse condivise (es. periferiche) siano gestite <strong>centralmente</strong>: un processo non vi accede direttamente ma <strong>chiede un servizio al SO</strong>, e il SO offre un modello semplice delle risorse (es. le periferiche viste come <strong>file speciali</strong>);</li>
+  <li>le periferiche siano gestite <strong>in modo efficiente</strong> (tenute attive il più possibile).</li>
+</ul>
+
+<h3>Come realizza il parallelismo: time-sharing</h3>
+<ul>
+  <li>Linux è un SO <strong>multi-programmato time-sharing</strong>: con un solo processore, fa eseguire i processi <strong>a turno</strong>, in modo equo.</li>
+  <li>Ogni processo riceve un <strong>quanto di tempo</strong>; allo scadere viene sospeso (<strong>preemption</strong>) e la CPU passa a un altro.</li>
+</ul>
+<div class="box def"><span class="t">Un processo smette di eseguire per due motivi</span>
+<ol style="margin-bottom:0">
+  <li><strong>Preemption</strong>: è scaduto il suo quanto di tempo (sospensione forzata).</li>
+  <li><strong>Sospensione volontaria</strong>: ha chiesto un servizio di sistema e deve aspettare (es. un'operazione di I/O).</li>
+</ol></div>
+
+<h3>Risorse gestite dal SO</h3>
+<table>
+<tr><th>Risorsa</th><th>Componente</th><th>Compito</th></tr>
+<tr><td>Processore (CPU)</td><td>gestione processi / scheduler</td><td>assegnare la CPU ai processi e al nucleo (<em>kernel</em>)</td></tr>
+<tr><td>Memoria centrale</td><td>gestore della memoria</td><td>partizionarla tra codice/dati dei processi e del SO</td></tr>
+<tr><td>Periferiche</td><td>device driver</td><td>presentarle come <strong>file speciali</strong>, nascondendo i dettagli</td></tr>
+<tr><td>Memoria di massa</td><td>file system</td><td>accesso tramite <strong>file e direttori</strong></td></tr>
+</table>
+
+<h2 id="architettura">4. Architettura a strati</h2>
+<figure>
+<svg viewBox="0 0 640 330" role="img" aria-label="Struttura a strati di Linux: modo utente con shell e programmi; interfaccia chiamate di sistema; modo kernel con gestione processi, memoria, device driver e file system; hardware">
+  <rect x="120" y="14" width="500" height="64" rx="8" class="svg-box"/>
+  <rect x="140" y="28" width="210" height="38" rx="6" class="svg-acc"/><text x="245" y="52" text-anchor="middle" class="svg-text" font-size="14">shell</text>
+  <rect x="390" y="28" width="210" height="38" rx="6" class="svg-acc"/><text x="495" y="52" text-anchor="middle" class="svg-text" font-size="14">programmi utente</text>
+  <text x="18" y="52" class="svg-text" font-size="14" font-weight="700">Modo utente</text>
+  <line x1="10" y1="96" x2="630" y2="96" style="stroke:var(--warn-border);stroke-width:2;stroke-dasharray:6 4"/>
+  <rect x="120" y="108" width="500" height="40" rx="6" class="svg-box"/><text x="370" y="133" text-anchor="middle" class="svg-text" font-size="14" font-weight="600">Interfaccia delle chiamate di sistema</text>
+  <rect x="120" y="156" width="500" height="96" rx="8" class="svg-box"/>
+  <rect x="136" y="170" width="112" height="68" rx="6" class="svg-acc"/><text x="192" y="200" text-anchor="middle" class="svg-text" font-size="13">Gestione</text><text x="192" y="218" text-anchor="middle" class="svg-text" font-size="13">processi</text>
+  <rect x="258" y="170" width="112" height="68" rx="6" class="svg-acc"/><text x="314" y="200" text-anchor="middle" class="svg-text" font-size="13">Gestione</text><text x="314" y="218" text-anchor="middle" class="svg-text" font-size="13">memoria</text>
+  <rect x="380" y="170" width="112" height="68" rx="6" class="svg-acc"/><text x="436" y="200" text-anchor="middle" class="svg-text" font-size="13">Device</text><text x="436" y="218" text-anchor="middle" class="svg-text" font-size="13">driver</text>
+  <rect x="502" y="170" width="104" height="68" rx="6" class="svg-acc"/><text x="554" y="210" text-anchor="middle" class="svg-text" font-size="13">File system</text>
+  <text x="18" y="185" class="svg-text" font-size="14" font-weight="700">Modo kernel</text>
+  <text x="18" y="205" class="svg-muted" font-size="12">(sistema</text>
+  <text x="18" y="221" class="svg-muted" font-size="12">operativo)</text>
+  <rect x="120" y="264" width="500" height="50" rx="8" style="fill:var(--code-bg);stroke:var(--border);stroke-width:1.5"/><text x="370" y="295" text-anchor="middle" class="svg-text" font-size="15" font-weight="700">HARDWARE</text>
+</svg>
+<figcaption>I programmi utente non toccano l'hardware: passano dalle chiamate di sistema, eseguite dal kernel in modo privilegiato.</figcaption>
+</figure>
+
+<h2 id="processi">5. Processi e thread in Linux</h2>
+<p>In Linux i thread sono realizzati come <strong>particolari processi</strong>, detti <strong>processi leggeri</strong> (<em>lightweight process</em>). Terminologia:</p>
+<table>
+<tr><th>Termine</th><th>Significato</th></tr>
+<tr><td><strong>Processo leggero</strong></td><td>processo creato per rappresentare un thread</td></tr>
+<tr><td><strong>Processo normale</strong></td><td>processo che non è leggero</td></tr>
+<tr><td><strong>Processo / task</strong></td><td>generico processo, normale o leggero (nel codice di Linux si dice <em>task</em>)</td></tr>
+</table>
+<p>I processi leggeri dello stesso processo normale condividono <strong>tutta la memoria, esclusa la pila</strong> (come visto in <a href="L02-thread.html#memoria">L02</a>).</p>
+
+<h2 id="scheduler">6. Commutazione di contesto e scheduler</h2>
+<div class="box def"><span class="t">Contesto e context switch</span>
+Il <strong>contesto</strong> di un processo è l'insieme delle informazioni su quel processo che il SO deve mantenere.<br>
+La <strong>commutazione di contesto</strong> (<em>context switch</em>) è la sostituzione del processo in esecuzione con un altro.</div>
+<p>Come sopra, avviene per <strong>preemption</strong> (fine del quanto) o per <strong>attesa volontaria</strong> (es. aspettare un dato dall'esterno).</p>
+<p>Lo <strong>scheduler</strong> è il componente del SO che <strong>decide quale processo mandare in esecuzione</strong> ed esegue il context switch. Obiettivi della politica di scheduling:</p>
+<ul>
+  <li>i processi <strong>più importanti</strong> (con priorità maggiore) vanno eseguiti prima;</li>
+  <li>i processi di <strong>pari importanza</strong> vanno trattati in modo <strong>equo</strong>: nessuno deve aspettare il proprio turno molto più degli altri.</li>
+</ul>
+
+<h2 id="smp">7. Sistemi multi-processore (SMP)</h2>
+<p>L'architettura multi-processore meglio supportata è la <strong>SMP</strong> (<em>Symmetric Multiprocessing</em>):</p>
+<ul>
+  <li>due o più processori <strong>identici</strong> collegati a <strong>un'unica memoria centrale</strong>;</li>
+  <li>tutti accedono a tutte le periferiche;</li>
+  <li>un solo SO li controlla e li tratta <strong>tutti allo stesso modo</strong>.</li>
+</ul>
+<p>Approccio di Linux: <strong>ogni task è assegnato a un processore</strong> (allocazione <strong>statica</strong>). I task vengono spostati solo se, in un controllo periodico, il carico risulta molto sbilanciato (<strong>load balancing</strong>).</p>
+<div class="box note"><span class="t">Perché statico?</span>
+Spostare un task su un'altra CPU significa perdere i dati nella sua <strong>cache</strong>: finché la cache della nuova CPU non si riempie, gli accessi in memoria sono più lenti.</div>
+<p>Conseguenza utile per lo studio: Linux si può capire <strong>come se ci fosse un solo processore</strong>. Un processo è eseguito da una sola CPU e non "vede" le altre. Quando parliamo di <strong>processo corrente</strong>, in realtà ce n'è uno per ogni CPU; la funzione <code>get_current()</code> restituisce il processo corrente della CPU che la esegue.</p>
+
+<h2 id="preempt">8. Kernel non-preemptable</h2>
+<ul>
+  <li>Il kernel di Linux (nella versione che studiamo) è <strong>non-preemptable</strong>: è <strong>vietata la preemption mentre un processo esegue codice del SO</strong>.</li>
+  <li>Questa regola <strong>semplifica molto</strong> la realizzazione del kernel (meno problemi di concorrenza al suo interno).</li>
+  <li>Compilando con l'opzione <code>CONFIG_PREEMPT</code> si ottiene un kernel preemptable, utile per sistemi <strong>real-time</strong>. Noi consideriamo solo la versione non-preemptable.</li>
+</ul>
+
+<h2 id="periferiche">9. Protezione dei processi e gestione delle periferiche</h2>
+<h3>Protezione</h3>
+<p>Il SO deve impedire che un processo danneggi il sistema o altri processi, quindi deve <strong>limitare le azioni</strong> che un processo può fare. Per riuscirci servono <strong>meccanismi hardware di protezione</strong> (es. modo utente / modo kernel).</p>
+<h3>Adattarsi all'evoluzione delle periferiche</h3>
+<p>Il SO deve seguire l'evoluzione dell'hardware, soprattutto delle periferiche. Linux lo fa così:</p>
+<ul>
+  <li><strong>Periferiche viste come file</strong>: il programma non conosce i dettagli fisici. Es.: un programma stampa scrivendo sul file speciale associato alla stampante; se cambio stampante il programma non cambia, cambia solo il <strong>driver</strong>.</li>
+  <li>Deve essere <strong>facile aggiungere</strong> il software di gestione di una nuova periferica (<strong>device driver</strong>).</li>
+  <li>Deve essere possibile <strong>configurare il sistema solo con i driver che servono</strong>, altrimenti il SO diventerebbe enorme.</li>
+</ul>
+
+<h2 id="moduli">10. Kernel module</h2>
+<div class="box def"><span class="t">Kernel module</span>
+Modulo che si può inserire nel sistema <strong>senza ricompilare l'intero kernel</strong>. Una volta caricato diventa <strong>parte integrante del SO</strong>: può accedere alle funzioni e alle strutture dati del sistema.</div>
+<ul>
+  <li>Si caricano <strong>dinamicamente</strong>, durante l'esecuzione, solo quando servono.</li>
+  <li>Sono così importanti che lo spazio di indirizzamento riservato ai moduli è <strong>doppio</strong> rispetto a quello del SO base.</li>
+  <li>Ciclo di vita: <strong>compila e collega</strong> (<code>make</code>) → <strong>carica</strong> (<code>insmod</code>) → … → <strong>rimuovi</strong> (<code>rmmod</code>).</li>
+</ul>
+<h3>Esempio: <code>axo_hello</code></h3>
+<pre><code><span class="k">#include</span> &lt;linux/init.h&gt;
+<span class="k">#include</span> &lt;linux/module.h&gt;
+
+<span class="c">/* funzione di inizializzazione: eseguita quando il modulo viene caricato */</span>
+<span class="k">static int</span> __init axo_init(<span class="k">void</span>) {
+   <span class="c">/* printk sostituisce printf, che nel kernel non è disponibile */</span>
+   printk("Inserito modulo AxoHello\n");
+   <span class="k">return</span> 0;
+}
+module_init(axo_init);   <span class="c">/* dice al sistema quale funzione eseguire al caricamento */</span>
+
+<span class="c">/* funzione di uscita: eseguita quando il modulo viene rimosso */</span>
+<span class="k">static void</span> __exit axo_exit(<span class="k">void</span>) {
+   printk("Rimosso modulo AxoHello\n");
+}
+module_exit(axo_exit);</code></pre>
+<h3>Compilazione ed esecuzione</h3>
+<pre><code><span class="c"># compila e collega (il makefile è complesso perché deve collegare le funzioni del SO)</span>
+<span class="c"># produce axo_hello.ko (ko = kernel object): l'equivalente di un eseguibile per il SO</span>
+make
+
+<span class="c"># carica il modulo (sudo: servono i diritti di amministratore)</span>
+sudo insmod ./axo_hello.ko
+
+<span class="c"># rimuovi il modulo</span>
+sudo rmmod axo_hello</code></pre>
+<p>I messaggi di <code>printk</code> finiscono nel <strong>log di sistema</strong> (si leggono ad esempio con <code>dmesg</code>).</p>
+
+<h2 id="modello">11. Modello semplificato e dipendenza dall'hardware</h2>
+<h3>Linux "semplificato"</h3>
+<p>Linux è troppo grande per essere descritto per intero, quindi nel corso si usa un <strong>modello semplificato</strong> che ne rispecchia fedelmente il funzionamento ma toglie dettagli e funzioni secondarie.</p>
+<ul>
+  <li>Si usano <strong>funzioni astratte</strong>: funzioni, strutture dati o costanti che sostituiscono gruppi di funzioni reali del codice sorgente.</li>
+  <li>Si riconoscono perché hanno <strong>nomi in italiano</strong>. Es.: lo stato <code>ATTESA</code> sostituisce i reali <code>INTERRUPTIBLE</code> e <code>UNINTERRUPTIBLE</code>.</li>
+</ul>
+<h3>Dipendenza dall'architettura hardware</h3>
+<ul>
+  <li>Linux è scritto in <strong>C</strong> e compilato con <strong>gcc</strong> → è portabile su tutte le piattaforme che hanno gcc.</li>
+  <li>Alcune funzioni dipendono dall'hardware e sono scritte diversamente per ogni architettura (spesso con codice <strong>assembler</strong>); al link si sceglie l'implementazione giusta (makefile complessi).</li>
+  <li>Il codice dipendente dall'architettura si trova in <code>linux/arch/</code>; per x86 in <code>linux/arch/x86/</code>.</li>
+</ul>
+<h3>Architettura x64</h3>
+<ul>
+  <li>Nel corso si fa riferimento all'architettura <strong>x86-64</strong> in <strong>Long 64-bit mode</strong>, chiamata per brevità <strong>x64</strong>.</li>
+  <li>ISA definita nel 2000, evoluzione dell'x86 a 32 bit e compatibile con le versioni precedenti.</li>
+  <li>Può funzionare in 5 modi: Long 64-bit, Long Compatibility, Legacy Protected, Legacy Virtual 8086, Legacy Real.</li>
+  <li>È l'architettura dominante per PC, server e supercomputer.</li>
+</ul>
+
+<h2 id="strutture">12. Strutture dati per la gestione dei processi</h2>
+<p>Il <strong>contesto</strong> di ogni processo è salvato in strutture dati del SO. Per il processo in esecuzione, una parte del contesto, il <strong>contesto hardware</strong>, sta nei <strong>registri della CPU</strong>: quando il processo smette di eseguire va <strong>salvata</strong> in memoria, per poterla <strong>ripristinare</strong> quando tornerà in esecuzione.</p>
+<p>Per ogni processo esistono (uno per processo):</p>
+<ul>
+  <li>il <strong>descrittore del processo</strong> (<em>process descriptor</em>): il suo indirizzo identifica il processo in modo univoco;</li>
+  <li>la <strong>pila di sistema</strong> (<strong>sPila</strong>) del processo.</li>
+</ul>
+
+<h3>Il descrittore: <code>task_struct</code></h3>
+<ul>
+  <li>Definito in <code>&lt;linux/sched.h&gt;</code>.</li>
+  <li>Allocato <strong>dinamicamente</strong> nella memoria del kernel ogni volta che si crea un processo.</li>
+  <li><code>get_current()</code> restituisce il puntatore al <code>task_struct</code> del task in esecuzione.</li>
+  <li>Negli esempi, "i processi P e Q" significa due variabili <code>struct task_struct *P, *Q;</code> e <code>P-&gt;pid</code> è il campo <code>pid</code> del descrittore di P.</li>
+</ul>
+<pre><code><span class="k">struct</span> task_struct {
+   pid_t pid;
+   pid_t tgid;
+   <span class="k">volatile long</span> state;           <span class="c">/* -1 non eseguibile, 0 eseguibile, &gt;0 fermato */</span>
+   <span class="k">void</span> *stack;                   <span class="c">/* puntatore alla sPila del task */</span>
+   <span class="k">struct</span> thread_struct thread;    <span class="c">/* contesto HW salvato */</span>
+   <span class="c">/* variabili per lo scheduling */</span>
+   <span class="k">struct</span> mm_struct *mm;           <span class="c">/* gestione della memoria */</span>
+   <span class="c">/* variabili per lo stato di terminazione */</span>
+   <span class="k">struct</span> fs_struct *fs;           <span class="c">/* informazioni sul filesystem */</span>
+   <span class="k">struct</span> files_struct *files;     <span class="c">/* file aperti */</span>
+   ...
+};</code></pre>
+<p>Nota il collegamento con la <a href="L02-thread.html#id">Lezione 2</a>: <code>pid</code> e <code>tgid</code> sono proprio i campi da cui <code>gettid()</code> e <code>getpid()</code> prendono i valori.</p>
+
+<h3>Il contesto hardware: <code>thread_struct</code></h3>
+<p>Dipende dall'hardware (per x86 è in <code>arch/x86/include/asm/processor.h</code>). Ci interessano tre campi che puntano alle pile:</p>
+<table>
+<tr><th>Campo</th><th>Significato</th></tr>
+<tr><td><code>sp0</code></td><td>base della <strong>pila di sistema</strong> del processo</td></tr>
+<tr><td><code>sp</code></td><td>posizione corrente nella <strong>pila di sistema</strong></td></tr>
+<tr><td><code>usersp</code></td><td>posizione corrente nella <strong>pila di modo utente</strong></td></tr>
+</table>
+
+<h3>Leggere il descrittore da un kernel module</h3>
+<pre><code><span class="k">static void</span> task_explore(<span class="k">void</span>) {
+   <span class="k">struct</span> task_struct *ts;
+   <span class="k">struct</span> thread_struct threadstruct;
+   <span class="k">int</span> pid, tgid;
+   <span class="k">unsigned long</span> vsp, vsp0, vstack, usp;
+
+   ts = get_current();                   <span class="c">/* task corrente */</span>
+   pid = ts-&gt;pid;  tgid = ts-&gt;tgid;
+   printk("PID = %d, TGID = %d\n", pid, tgid);
+
+   threadstruct = ts-&gt;thread;            <span class="c">/* informazioni sulle pile */</span>
+   vsp  = threadstruct.sp;
+   vsp0 = threadstruct.sp0;
+   vstack = (<span class="k">unsigned long</span>) ts-&gt;stack;
+   usp  = threadstruct.usersp;
+   <span class="c">/* printk di ciascun valore */</span>
+}</code></pre>
+<p>Output (dal log di sistema):</p>
+<pre><code>[27663.251212] Inserito modulo Axo_Task
+[27663.251214] PID = 7424, TGID = 7424
+[27663.251215] thread.sp  = 0xFFFF 8800 5C64 5D68
+[27663.251216] thread.sp0 = 0xFFFF 8800 5C64 6000
+[27663.251217] ts-&gt;stack  = 0xFFFF 8800 5C64 4000
+[27663.251218] usersp     = 0x0000 7FFF 6DA9 8C78
+[27663.260995] Rimosso modulo Axo_Task</code></pre>
+<ul>
+  <li>I messaggi hanno la numerazione del <strong>log di sistema</strong> perché a stampare è il SO.</li>
+  <li><strong>PID = TGID</strong> → il processo ha un solo thread.</li>
+  <li>PID e TGID si potrebbero ottenere anche da un normale programma (<code>getpid</code>…), ma gli <strong>indirizzi della pila di sistema no</strong>: sono visibili solo dal kernel.</li>
+  <li>Gli indirizzi <code>0xFFFF…</code> sono nello spazio del <strong>kernel</strong>; <code>usersp</code> (<code>0x0000 7FFF…</code>) è nello spazio <strong>utente</strong>.</li>
+  <li>La sPila va da <code>stack</code> (…4000) a <code>sp0</code> (…6000): <strong>8 KB</strong> (0x2000); <code>sp</code> sta in mezzo perché la pila cresce verso il basso a partire da <code>sp0</code>.</li>
+</ul>
+
+<h2 id="riassunto">Riassunto</h2>
+<div class="summary"><ul>
+  <li>Linux domina server e mobile (Android); oltre metà del codice sono driver.</li>
+  <li>Il SO crea l'ambiente di esecuzione: processi sequenziali, paralleli, isolati; risorse condivise gestite centralmente tramite servizi.</li>
+  <li><strong>Time-sharing</strong>: quanto di tempo; un processo si ferma per <strong>preemption</strong> o per <strong>attesa volontaria</strong>.</li>
+  <li>Struttura a strati: modo utente → chiamate di sistema → kernel (processi, memoria, driver, file system) → hardware.</li>
+  <li>Thread = <strong>processi leggeri</strong>; "task" = processo generico.</li>
+  <li><strong>Scheduler</strong>: sceglie chi esegue (priorità + equità) e fa il context switch.</li>
+  <li><strong>SMP</strong>: task assegnati staticamente alle CPU (cache), load balancing periodico; <code>get_current()</code> per CPU.</li>
+  <li>Kernel <strong>non-preemptable</strong> (salvo <code>CONFIG_PREEMPT</code>).</li>
+  <li><strong>Kernel module</strong>: <code>make</code> → <code>insmod</code> → <code>rmmod</code>; <code>printk</code> invece di <code>printf</code>.</li>
+  <li>Ogni processo ha un <strong><code>task_struct</code></strong> (pid, tgid, state, stack, thread, mm, files…) e una <strong>sPila</strong>; il contesto HW è in <code>thread_struct</code> (sp0, sp, usersp).</li>
+</ul></div>
+
+<div class="pager">
+  <a href="L03-programmazione-concorrente.html">← L03 Programmazione concorrente</a>
+  <a href="../index.html">Indice →</a>
+</div>
+</main>
+</div>
+</body>
+</html>

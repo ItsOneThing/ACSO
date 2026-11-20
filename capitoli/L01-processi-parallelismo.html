@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L01 · Processi e parallelismo</title>
+<link rel="stylesheet" href="../style/style.css">
+</head>
+<body>
+<div class="topbar"><div class="topbar-inner">
+  <a class="home" href="../index.html">← Appunti ACSO · Modulo 2</a>
+  <a class="active" href="L01-processi-parallelismo.html">L01 Processi</a>
+  <a href="L02-thread.html">L02 Thread</a>
+  <a href="L03-programmazione-concorrente.html">L03 Concorrenza</a>
+  <a href="L04-introduzione-linux.html">L04 Linux</a>
+</div></div>
+
+<div class="layout">
+<nav class="toc">
+  <h4>In questa lezione</h4>
+  <ol>
+    <li><a href="#so">1. Il sistema operativo</a></li>
+    <li><a href="#parallelismo">2. SO e parallelismo</a></li>
+    <li><a href="#virtualizzazione">3. Virtualizzazione e system call</a></li>
+    <li><a href="#processi">4. Cos'è un processo</a></li>
+    <li><a href="#primitive">5. Le primitive</a></li>
+    <li><a href="#fork">6. fork()</a></li>
+    <li><a href="#getpid">7. getpid / getppid</a></li>
+    <li><a href="#exit">8. exit()</a></li>
+    <li><a href="#wait">9. wait()</a></li>
+    <li><a href="#zombie">10. Processi zombie</a></li>
+    <li><a href="#waitpid">11. waitpid()</a></li>
+    <li><a href="#exec">12. exec / execl</a></li>
+    <li><a href="#forkexec">13. fork + exec</a></li>
+    <li><a href="#esercizio">14. Esercizio conclusivo</a></li>
+    <li><a href="#riassunto">Riassunto</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="lesson">
+  <div class="tag">Lezione 1</div>
+  <h1>Processi e parallelismo</h1>
+  <p class="sub">Cap. P1 delle dispense Pelagatti — il sistema operativo come creatore di parallelismo e le system call per gestire i processi: <code>fork</code>, <code>exit</code>, <code>wait</code>, <code>waitpid</code>, <code>exec</code>.</p>
+</header>
+
+<h2 id="so">1. Il sistema operativo</h2>
+<div class="box def"><span class="t">Definizione</span>
+Il <strong>sistema operativo</strong> è un insieme di programmi (moduli software) che svolgono <strong>funzioni di servizio</strong> nel calcolatore. È la parte essenziale del <strong>software di sistema</strong> (o di base): non fa cose "applicative", ma fa da supporto alle applicazioni.</div>
+<p>Il SO serve a:</p>
+<ul>
+  <li>offrire all'utente una <strong>macchina "virtuale"</strong> che esegue i suoi comandi, costruita sopra la macchina reale (di livello più basso);</li>
+  <li>offrire ai programmi (e quindi al programmatore) un insieme di <strong>servizi di sistema</strong>, che si invocano con le <strong>chiamate di sistema</strong> (<em>system call</em>);</li>
+  <li><strong>controllare le risorse fisiche</strong> e <strong>creare/gestire il parallelismo</strong>.</li>
+</ul>
+
+<h2 id="parallelismo">2. Il SO come creatore di parallelismo</h2>
+<div class="grid2">
+  <div><h4>Esecuzione sequenziale</h4>
+  N programmi vengono eseguiti uno dopo l'altro: il programma <em>i</em> parte solo quando è finito il programma <em>i−1</em>.<br>
+  ✔ Nessuna interferenza tra programmi.<br>
+  ✘ Non basta per le esigenze reali: applicazioni distribuite, server multiutente, più applicazioni aperte dallo stesso utente.</div>
+  <div><h4>Esecuzione parallela</h4>
+  Deve soddisfare due obiettivi in contrasto:
+  <ul><li><strong>parallelismo</strong>;</li><li><strong>virtualizzazione</strong>: ogni programma deve girare <strong>senza interferenze</strong>, come se avesse la macchina tutta per sé.</li></ul></div>
+</div>
+<p>La soluzione: il SO crea <strong>dinamicamente</strong> tanti <strong>esecutori</strong> quanti sono i programmi da eseguire in parallelo. Questi esecutori si chiamano <strong>processi</strong>. Un processo è un <strong>esecutore completo</strong>.</p>
+<p>Il SO sa creare processi indipendenti e fornisce al programmatore le system call per <strong>crearli ed eliminarli</strong>.</p>
+<div class="box note"><span class="t">Multitasking</span>
+Le slide mostrano (con figure) la pila utente → applicazioni → SO → hardware, e l'idea di SO <strong>multitasking</strong>: più processi attivi "contemporaneamente" sopra lo stesso hardware, con il SO che fa da intermediario.</div>
+
+<h2 id="virtualizzazione">3. Virtualizzazione delle risorse e system call</h2>
+<ul>
+  <li>Se più processi vogliono usare <strong>contemporaneamente</strong> una risorsa reale condivisa, il SO gestisce il conflitto creando <strong>risorse virtuali</strong> e <strong>mettendo in coda</strong> i processi che la richiedono.</li>
+  <li>Per questo un programma <strong>non può accedere direttamente alle periferiche</strong>: deve usare le <strong>system call</strong> (es. le funzioni di I/O della libreria C, come <code>printf</code>, alla fine chiamano system call).</li>
+</ul>
+<div class="box def"><span class="t">Programmazione di sistema</span>
+Le tecniche per scrivere programmi utente che interagiscono strettamente con il SO usando le sue system call.</div>
+<p>Categorie principali di system call:</p>
+<div class="grid2">
+  <div><ul><li>gestione dei <strong>processi</strong> ← <em>questa lezione</em></li><li>segnalazioni</li><li>gestione di file</li></ul></div>
+  <div><ul><li>gestione di direttori e file system</li><li>protezione</li><li>gestione di ora e data</li></ul></div>
+</div>
+
+<h2 id="processi">4. Cos'è un processo</h2>
+<ul>
+  <li>Un <strong>processo è un programma in esecuzione</strong>.</li>
+  <li>Ogni processo ha un <strong>PID</strong> (<em>Process IDentifier</em>): numero a 16 bit, unico, assegnato <strong>in sequenza</strong> da Linux alla creazione.</li>
+  <li>Ogni processo è creato da un altro processo, quindi ha un <strong>padre</strong>. Unica eccezione: <strong><code>init</code></strong>, il primo processo creato all'avvio del SO.</li>
+</ul>
+<h3>La memoria di un processo: tre segmenti</h3>
+<table>
+<tr><th>Segmento</th><th>Contiene</th></tr>
+<tr><td><strong>Codice</strong> (<em>text segment</em>)</td><td>il codice eseguibile del programma</td></tr>
+<tr><td><strong>Dati</strong> (<em>user data segment</em>)</td><td>tutte le variabili: globali/statiche, locali (sullo stack), dinamiche (<code>malloc</code>)</td></tr>
+<tr><td><strong>Sistema</strong> (<em>system data segment</em>)</td><td>dati gestiti dal SO e non dal programma, es. la <strong>tabella dei file aperti</strong></td></tr>
+</table>
+
+<h2 id="primitive">5. Le primitive per gestire i processi</h2>
+<table>
+<tr><th>System call</th><th>Cosa fa</th><th>Analogo per i thread (L02)</th></tr>
+<tr><td><code>fork</code></td><td>crea un processo <strong>figlio</strong> (<em>child</em>/<em>slave</em>), copia del <strong>padre</strong> (<em>parent</em>/<em>master</em>)</td><td><code>pthread_create</code></td></tr>
+<tr><td><code>exit</code></td><td>termina il processo, restituendo un codice al padre</td><td><code>return</code> dalla thread function</td></tr>
+<tr><td><code>wait</code></td><td>aspetta la terminazione di un figlio</td><td><code>pthread_join</code></td></tr>
+<tr><td><code>exec</code></td><td>sostituisce il programma eseguito dal processo</td><td>— (i thread non possono)</td></tr>
+</table>
+<h3>Gerarchia di processi</h3>
+<p>Un padre può generare più figli, e ogni figlio può a sua volta generarne altri: si forma un <strong>albero</strong>.</p>
+<figure>
+<svg viewBox="0 0 560 220" role="img" aria-label="Albero: P padre di F1 e F2; F1 padre di N11 e N12; F2 padre di N2">
+  <path d="M280 52 L150 98 M280 52 L410 98 M150 128 L80 172 M150 128 L220 172 M410 128 L410 172" class="svg-line"/>
+  <rect x="235" y="20" width="90" height="34" rx="8" class="svg-acc"/><text x="280" y="42" text-anchor="middle" class="svg-text" font-size="14" font-weight="700">Padre P</text>
+  <rect x="105" y="96" width="90" height="34" rx="8" class="svg-box"/><text x="150" y="118" text-anchor="middle" class="svg-text" font-size="14">Figlio F1</text>
+  <rect x="365" y="96" width="90" height="34" rx="8" class="svg-box"/><text x="410" y="118" text-anchor="middle" class="svg-text" font-size="14">Figlio F2</text>
+  <rect x="35" y="170" width="90" height="34" rx="8" class="svg-box"/><text x="80" y="192" text-anchor="middle" class="svg-text" font-size="14">N11</text>
+  <rect x="175" y="170" width="90" height="34" rx="8" class="svg-box"/><text x="220" y="192" text-anchor="middle" class="svg-text" font-size="14">N12</text>
+  <rect x="365" y="170" width="90" height="34" rx="8" class="svg-box"/><text x="410" y="192" text-anchor="middle" class="svg-text" font-size="14">N2</text>
+</svg>
+<figcaption>P è padre di F1 e F2; F1 è padre di N11 e N12; F2 è padre di N2.</figcaption>
+</figure>
+
+<h2 id="fork">6. Creare un processo: <code>fork()</code></h2>
+<pre><code>pid_t fork(void);</code></pre>
+<ul>
+  <li>Crea un processo figlio <strong>identico e parallelo</strong> al padre: è una <strong>copia esatta del padre nell'istante della fork</strong>.</li>
+  <li>Vengono <strong>duplicati</strong> il segmento dati e il segmento di sistema: variabili, file aperti… sono <strong>copiati</strong> nel figlio. Da quel momento i due processi evolvono <strong>indipendentemente</strong>: se il figlio modifica una variabile, il padre <strong>non</strong> vede la modifica (e viceversa).</li>
+  <li>Entrambi ripartono <strong>dall'istruzione subito dopo la fork</strong>.</li>
+</ul>
+<div class="box def"><span class="t">L'unica differenza: il valore restituito</span>
+<ul style="margin-bottom:0">
+  <li>nel <strong>padre</strong> → il <strong>PID del figlio</strong> appena creato (così il padre lo conosce); <strong>−1</strong> in caso di errore;</li>
+  <li>nel <strong>figlio</strong> → <strong>0</strong>.</li>
+</ul></div>
+
+<h3>Esempio base</h3>
+<pre><code><span class="k">#include</span> &lt;stdio.h&gt;
+<span class="k">#include</span> &lt;sys/types.h&gt;
+
+<span class="k">void</span> main(<span class="k">int</span> argc, <span class="k">char</span> *argv[]) {
+   pid_t pid;
+   pid = fork();
+   <span class="k">if</span> (pid == 0) {                         <span class="c">/* processo figlio */</span>
+      printf("sono il processo figlio\n");
+      exit();
+   } <span class="k">else</span> {                                <span class="c">/* processo padre */</span>
+      printf("sono il processo padre\n");
+      exit();
+   }
+}</code></pre>
+<figure>
+<svg viewBox="0 0 640 210" role="img" aria-label="Prima della fork un processo con PID a; dopo, due processi: padre PID a con pid=b, figlio PID b con pid=0">
+  <defs><marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--text)"/></marker></defs>
+  <rect x="20" y="70" width="170" height="70" rx="10" class="svg-acc"/>
+  <text x="105" y="98" text-anchor="middle" class="svg-text" font-size="14" font-weight="700">Processo</text>
+  <text x="105" y="120" text-anchor="middle" class="svg-muted" font-size="13">PID = a</text>
+  <path d="M190 95 L400 45" class="svg-line" marker-end="url(#ar1)"/>
+  <path d="M190 115 L400 165" class="svg-line" marker-end="url(#ar1)"/>
+  <text x="270" y="110" class="svg-text" font-size="14" font-weight="700">fork()</text>
+  <rect x="405" y="12" width="215" height="66" rx="10" class="svg-box"/>
+  <text x="512" y="38" text-anchor="middle" class="svg-text" font-size="14" font-weight="700">Padre</text>
+  <text x="512" y="60" text-anchor="middle" class="svg-muted" font-size="13">PID = a, pid = b  → ramo else</text>
+  <rect x="405" y="132" width="215" height="66" rx="10" class="svg-box"/>
+  <text x="512" y="158" text-anchor="middle" class="svg-text" font-size="14" font-weight="700">Figlio</text>
+  <text x="512" y="180" text-anchor="middle" class="svg-muted" font-size="13">PID = b, pid = 0  → ramo if</text>
+</svg>
+<figcaption>Dopo la fork esistono due processi che eseguono lo stesso codice; la variabile <code>pid</code> decide quale ramo dell'if prendono.</figcaption>
+</figure>
+<p>Output possibili:</p>
+<div class="grid2">
+  <div><pre style="margin:0"><code>sono il processo figlio
+sono il processo padre</code></pre></div>
+  <div><pre style="margin:0"><code>sono il processo padre
+sono il processo figlio</code></pre></div>
+</div>
+<div class="box warn"><span class="t">Errore grave da evitare</span>
+Dopo la fork padre e figlio evolvono <strong>in parallelo</strong> e scrivono sullo stesso standard output: l'ordine delle <code>printf</code> è <strong>casuale</strong>. <strong>Non bisogna mai supporre</strong> un ordine preciso di esecuzione tra due processi.</div>
+
+<h3>Esempio: generare 2 figli</h3>
+<pre><code><span class="k">void</span> main() {
+   pid_t pid1, pid2;
+   pid1 = fork();
+   <span class="k">if</span> (pid1 == 0) {                              <span class="c">/* PRIMO FIGLIO */</span>
+      printf("FIGLIO 1: PID = %d\n", getpid());
+      exit();
+   } <span class="k">else</span> {                                      <span class="c">/* PADRE */</span>
+      pid2 = fork();
+      <span class="k">if</span> (pid2 == 0) {                           <span class="c">/* SECONDO FIGLIO */</span>
+         printf("FIGLIO 2: PID = %d\n", getpid());
+         exit();
+      } <span class="k">else</span> {                                   <span class="c">/* PADRE */</span>
+         printf("PADRE: PID = %d\n", getpid());
+         printf("PADRE: PID DEL FIGLIO 1 = %d\n", pid1);
+         printf("PADRE: PID DEL FIGLIO 2 = %d\n", pid2);
+         exit();
+      }
+   }
+}</code></pre>
+<p>La seconda fork è <strong>solo nel ramo del padre</strong>: così è il padre a creare entrambi i figli (sono "fratelli"). Il primo figlio fa <code>exit</code> subito e non esegue la seconda fork.</p>
+<div class="box note"><span class="t">Trappola classica</span>
+Se metti due <code>fork()</code> una dopo l'altra <strong>senza</strong> <code>if</code>, anche il primo figlio esegue la seconda fork: ottieni <strong>4 processi</strong> in totale (in generale <strong>2<sup>n</sup></strong> con n fork in sequenza).</div>
+
+<h2 id="getpid">7. <code>getpid()</code> e <code>getppid()</code></h2>
+<pre><code>pid_t getpid(void);    <span class="c">// PID del processo che la chiama</span>
+pid_t getppid(void);   <span class="c">// PID del suo padre (parent)</span></code></pre>
+<pre><code><span class="k">void</span> main() {
+   pid_t pid;
+   printf("Prima della fork: PID = %d\n", getpid());
+   pid = fork();
+   <span class="k">if</span> (pid == 0) {
+      printf("FIGLIO: PID = %d\n", getpid());           <span class="c">// PID del figlio</span>
+      printf("FIGLIO: PID DEL PADRE = %d\n", getppid()); <span class="c">// PID del padre</span>
+      exit();
+   } <span class="k">else</span> {
+      printf("PADRE: PID = %d\n", getpid());            <span class="c">// PID del padre</span>
+      printf("PADRE: PID DEL FIGLIO = %d\n", pid);      <span class="c">// valore restituito dalla fork</span>
+      exit();
+   }
+}</code></pre>
+<p>Nota: "Prima della fork" e "PADRE: PID" stampano <strong>lo stesso numero</strong>; "FIGLIO: PID DEL PADRE" anche (se il padre è ancora vivo). "PADRE: PID DEL FIGLIO" = "FIGLIO: PID".</p>
+
+<h2 id="exit">8. Terminare: <code>exit()</code></h2>
+<pre><code><span class="k">void</span> exit(<span class="k">int</span>);</code></pre>
+<ul>
+  <li>Termina il processo corrente (un processo può terminare anche senza <code>exit</code>, ad esempio arrivando alla fine del <code>main</code>).</li>
+  <li>L'intero passato è il <strong>codice di terminazione</strong> (<em>exit code</em>) ed è "restituito" al padre.</li>
+  <li>Convenzione: <strong>0 = tutto ok</strong>, <strong>≠ 0 = errore</strong>.</li>
+  <li>Se il padre è già terminato, il valore va all'<strong>interprete comandi</strong> del SO.</li>
+</ul>
+
+<h2 id="wait">9. Aspettare un figlio: <code>wait()</code></h2>
+<pre><code>pid_t wait(<span class="k">int</span> *);</code></pre>
+<ul>
+  <li><strong>Sospende</strong> il processo che la chiama finché <strong>un qualsiasi figlio</strong> termina.</li>
+  <li>Se un figlio è già terminato prima della <code>wait</code>, la <code>wait</code> ritorna <strong>subito</strong>.</li>
+  <li>Restituisce il <strong>PID del figlio terminato</strong>.</li>
+  <li>Nel parametro (passato per indirizzo) mette l'exit code del figlio <strong>moltiplicato per 256</strong>, cioè spostato negli 8 bit più significativi. Per leggerlo: <code>stato / 256</code>.</li>
+</ul>
+<pre><code><span class="k">void</span> main() {
+   pid_t pid;
+   <span class="k">int</span> stato_exit, stato_wait;
+   pid = fork();
+   <span class="k">if</span> (pid == 0) {                                   <span class="c">/* figlio */</span>
+      printf("sono il processo figlio con pid: %d\n", getpid());
+      stato_exit = 5;
+      exit(stato_exit);                              <span class="c">/* il figlio termina con codice 5 */</span>
+   } <span class="k">else</span> {                                          <span class="c">/* padre */</span>
+      printf("Ho generato il processo figlio con pid %d\n", pid);
+      <span class="hl">pid = wait(&amp;stato_wait);                       <span class="c">/* attende la fine del figlio */</span></span>
+      printf("Terminato il processo figlio %d con esito %d\n", pid, stato_wait / 256);
+   }
+}</code></pre>
+<p>Il padre stampa <code>esito 5</code>: <code>stato_wait</code> vale 5 × 256 = 1280. La riga "Terminato…" esce <strong>sempre per ultima</strong>, perché il padre la stampa solo dopo la <code>wait</code>.</p>
+
+<h2 id="zombie">10. Processi zombie</h2>
+<ol>
+  <li>Il figlio termina <strong>mentre il padre è già in <code>wait</code></strong> → il figlio termina e il suo exit code passa al padre tramite la <code>wait</code>.</li>
+  <li>Il figlio termina <strong>quando il padre non ha ancora chiamato <code>wait</code></strong> → il figlio diventa uno <strong>zombie</strong>. Quando il padre chiamerà <code>wait</code>, lo stato dello zombie viene recuperato, lo zombie viene eliminato e la <code>wait</code> ritorna subito.</li>
+</ol>
+<div class="box def"><span class="t">Processo zombie</span>
+Un processo <strong>terminato ma non ancora "ripulito"</strong>: il SO ne conserva lo stato di terminazione perché il padre possa ancora recuperarlo con <code>wait</code>.</div>
+
+<h2 id="waitpid">11. Aspettare un figlio preciso: <code>waitpid()</code></h2>
+<pre><code>pid_t waitpid(pid_t pid, <span class="k">int</span> *status, <span class="k">int</span> options);</code></pre>
+<ul>
+  <li>Come <code>wait</code>, ma aspetta <strong>il figlio con quel PID</strong> (non uno qualsiasi).</li>
+  <li>Se il figlio è già terminato, ritorna subito.</li>
+  <li>Restituisce il PID del figlio terminato; <code>status</code> riceve il codice di terminazione; <code>options</code> specifica altre opzioni.</li>
+</ul>
+<pre><code>my_pid = waitpid(pid, &amp;status, 1);   <span class="c">/* il padre attende la fine di QUEL figlio */</span>
+printf("E' terminato il processo %d con esito %d\n", my_pid, status);</code></pre>
+
+<h2 id="exec">12. Cambiare programma: <code>exec</code></h2>
+<p><code>exec</code> <strong>sostituisce il programma in esecuzione con un altro</strong> (<em>commutazione di codice</em>): il processo resta lo stesso, ma smette subito di eseguire il vecchio programma e comincia il nuovo.</p>
+<table>
+<tr><th>Cosa cambia</th><th>Cosa NON cambia</th></tr>
+<tr><td>segmento <strong>codice</strong> e segmento <strong>dati</strong>: presi dal file eseguibile indicato</td><td>segmento di <strong>sistema</strong>: file e socket restano aperti<br>il <strong>PID</strong>: è lo stesso processo</td></tr>
+</table>
+<p>I parametri arrivano al nuovo programma con il meccanismo standard di <code>main(argc, argv)</code>.</p>
+
+<h3>Sintassi di <code>execl</code></h3>
+<pre><code><span class="k">int</span> execl(<span class="k">char</span> *path_programma, <span class="k">char</span> *arg0, <span class="k">char</span> *arg1, ..., <span class="k">char</span> *argn);</code></pre>
+<ul>
+  <li><code>path_programma</code>: percorso completo dell'eseguibile da lanciare;</li>
+  <li><code>arg0</code>: per convenzione <strong>il nome del programma</strong>;</li>
+  <li>l'ultimo argomento deve essere <strong><code>NULL</code></strong> (fine della lista);</li>
+  <li>restituisce <strong>−1 se fallisce</strong>. Se riesce, in pratica <strong>non ritorna mai</strong>: il vecchio codice non esiste più. Per questo l'istruzione dopo una <code>execl</code> viene eseguita <strong>solo in caso di errore</strong>.</li>
+</ul>
+
+<h3><code>argc</code> e <code>argv</code></h3>
+<ul>
+  <li><code>argc</code>: numero di parametri ricevuti;</li>
+  <li><code>argv</code>: array di puntatori a stringhe; <code>argv[0]</code> è il nome del programma.</li>
+</ul>
+<pre><code><span class="k">void</span> main(<span class="k">int</span> argc, <span class="k">char</span> *argv[]) {
+   <span class="k">int</span> i;
+   printf("ho ricevuto %i parametri\n", argc);
+   <span class="k">for</span> (i = 0; i &lt; argc; i++)
+      printf("parametro %i = %s\n", i, argv[i]);
+}</code></pre>
+
+<h3>Esempio: <code>exec1</code> lancia <code>main1</code></h3>
+<div class="grid2">
+<div><h4>exec1</h4>
+<pre style="margin:0"><code><span class="k">void</span> main(<span class="k">int</span> argc, <span class="k">char</span> *argv[]) {
+   <span class="k">char</span> P0[] = "main1";
+   <span class="k">char</span> P1[] = "parametro1";
+   <span class="k">char</span> P2[] = "parametro2";
+   printf("programma exec1 in esecuzione\n");
+   execl("/esempi/main1", P0, P1, P2, NULL);
+}</code></pre></div>
+<div><h4>main1</h4>
+<pre style="margin:0"><code><span class="k">void</span> main(<span class="k">int</span> argc, <span class="k">char</span> *argv[]) {
+   <span class="k">int</span> i;
+   printf("programma main1 in esecuzione\n");
+   printf("ho ricevuto %d parametri\n", argc);
+   <span class="k">for</span> (i = 0; i &lt; argc; i++)
+      printf("il parametro %d e': %s\n", i, argv[i]);
+}</code></pre></div>
+</div>
+<pre><code>$ ./exec1
+programma exec1 in esecuzione
+programma main1 in esecuzione
+ho ricevuto 3 parametri
+il parametro 0 e': main1
+il parametro 1 e': parametro1
+il parametro 2 e': parametro2</code></pre>
+
+<h2 id="forkexec">13. <code>fork</code> + <code>exec</code></h2>
+<ul>
+  <li><code>exec</code> <strong>non crea</strong> un processo nuovo: nell'esempio sopra, quando <code>main1</code> termina, termina anche il processo che era <code>exec1</code> (sono <strong>lo stesso processo</strong>).</li>
+  <li>Se voglio che il programma di partenza <strong>resti vivo</strong>, devo prima fare <code>fork</code> e poi <code>exec</code> <strong>nel figlio</strong>. Di solito il padre poi aspetta il figlio con <code>wait</code>.</li>
+  <li>È il modo standard per "eseguire un altro programma come una funzione": il chiamante continua nel padre, il figlio diventa il nuovo programma. (È esattamente quello che fa la shell quando lanci un comando.)</li>
+</ul>
+<pre><code><span class="k">void</span> main() {
+   pid_t pid, chpid;
+   pid = fork();
+   <span class="k">if</span> (pid == 0) {                                   <span class="c">/* FIGLIO */</span>
+      printf("FIGLIO: prima del cambio di codice\n");
+      printf("FIGLIO: PID = %d\n", getpid());
+      <span class="hl">execl("./prog", "prog", NULL);</span>
+      printf("FIGLIO: errore nel cambio di codice\n"); <span class="c">// solo se execl fallisce</span>
+      exit(1);
+   } <span class="k">else</span> {                                          <span class="c">/* PADRE */</span>
+      printf("PADRE: wait\n");
+      chpid = wait(NULL);
+      printf("PADRE: PID DEL FIGLIO = %d\n", chpid);
+      exit(0);
+   }
+}
+
+<span class="c">/* programma prog */</span>
+<span class="k">void</span> main(<span class="k">int</span> argc, <span class="k">char</span> *argv[]) {
+   printf("PROG: PID = %d\n", getpid());
+   printf("PROG: exit\n");
+}</code></pre>
+<p>Esecuzione (supponendo che parta prima il padre):</p>
+<pre><code>PADRE: wait
+FIGLIO: prima del cambio del codice
+FIGLIO: PID = 4995
+PROG: PID = 4995              <span class="c">← stesso PID: exec non cambia processo</span>
+PROG: exit
+PADRE: PID DEL FIGLIO = 4995</code></pre>
+
+<h2 id="esercizio">14. Esercizio conclusivo</h2>
+<pre><code>01: main() {
+03:    <span class="k">int</span> i, j, k, m, stato;
+04:    pid_t pid1, pid2;
+05:    i = 10; j = 20; k = 30; m = 40;
+06:    pid1 = fork();                     <span class="c">/* creazione del primo figlio */</span>
+07:    <span class="k">if</span> (pid1 == 0) {                   <span class="c">/* PRIMO FIGLIO */</span>
+08:       j = j + 1;
+09:       pid2 = fork();                  <span class="c">/* creazione del secondo figlio */</span>
+10:       <span class="k">if</span> (pid2 == 0) {                <span class="c">/* SECONDO FIGLIO */</span>
+11:          k = k + 1;
+12:          exit();
+13:       } <span class="k">else</span> {                       <span class="c">/* PRIMO FIGLIO */</span>
+14:          m = m + 1;
+15:          wait(&amp;stato);
+16:          exit();
+         }
+18:    } <span class="k">else</span> {                          <span class="c">/* PADRE */</span>
+19:       i = i + 1;
+20:       wait(&amp;stato);
+21:       exit();
+       }
+22: }</code></pre>
+<p>Struttura: il <strong>padre</strong> crea il <strong>figlio 1</strong>, che crea il <strong>figlio 2</strong> (nipote del padre). Ogni processo ha <strong>la sua copia</strong> delle variabili, presa nel momento della fork che l'ha creato.</p>
+<table>
+<tr><th>Processo (es. PID)</th><th>i</th><th>j</th><th>k</th><th>m</th><th>Perché</th></tr>
+<tr><td><strong>Padre</strong> (649)</td><td><strong>11</strong></td><td>20</td><td>30</td><td>40</td><td>fa solo <code>i++</code></td></tr>
+<tr><td><strong>Figlio 1</strong> (500)</td><td>10</td><td><strong>21</strong></td><td>30</td><td><strong>41</strong></td><td>copia del padre <em>prima</em> di <code>i++</code>; fa <code>j++</code> e <code>m++</code></td></tr>
+<tr><td><strong>Figlio 2</strong> (501)</td><td>10</td><td><strong>21</strong></td><td><strong>31</strong></td><td>40</td><td>copia del figlio 1 <em>dopo</em> <code>j++</code> ma <em>prima</em> di <code>m++</code>; fa <code>k++</code></td></tr>
+</table>
+<div class="box ok"><span class="t">Commenti</span>
+<ul style="margin-bottom:0">
+  <li>L'<strong>ordine di terminazione è deterministico</strong>: secondo figlio → primo figlio → padre (perché il figlio 1 fa <code>wait</code> sul figlio 2, e il padre fa <code>wait</code> sul figlio 1).</li>
+  <li>L'<strong>ordine degli incrementi</strong> <code>i++</code>, <code>j++</code>, <code>m++</code>, <code>k++</code> <strong>non è prevedibile</strong> (tranne che <code>j++</code> viene prima di <code>m++</code> e di <code>k++</code>, perché stanno nello stesso flusso prima della seconda fork).</li>
+</ul></div>
+
+<div class="box note"><span class="t">Nota sul codice delle slide</span>
+Le slide scrivono <code>void main()</code> ed <code>exit()</code> senza argomento per brevità. In C "vero" si usa <code>int main()</code>, <code>exit(0)</code> e si includono <code>&lt;stdlib.h&gt;</code> (per <code>exit</code>), <code>&lt;unistd.h&gt;</code> (per <code>fork</code>, <code>getpid</code>, <code>execl</code>) e <code>&lt;sys/wait.h&gt;</code> (per <code>wait</code>).</div>
+
+<h2 id="riassunto">Riassunto</h2>
+<div class="summary"><ul>
+  <li>Il SO crea il parallelismo creando <strong>processi</strong>: esecutori completi, isolati tra loro (virtualizzazione).</li>
+  <li>I programmi accedono alle risorse solo tramite <strong>system call</strong>.</li>
+  <li>Processo = programma in esecuzione; PID unico; tutti hanno un padre tranne <code>init</code>; memoria = codice + dati + sistema.</li>
+  <li><code>fork()</code>: copia il processo; restituisce <strong>0 al figlio</strong>, <strong>PID del figlio al padre</strong>, −1 se errore. Dopo, ordine di esecuzione imprevedibile.</li>
+  <li><code>exit(n)</code>: termina con codice n (0 = ok). <code>wait(&amp;s)</code>: aspetta un figlio qualsiasi, restituisce il suo PID, exit code = <code>s / 256</code>. <code>waitpid</code>: aspetta un figlio preciso.</li>
+  <li><strong>Zombie</strong>: figlio terminato il cui stato non è ancora stato raccolto dal padre.</li>
+  <li><code>execl(path, nome, arg…, NULL)</code>: cambia codice e dati, <strong>stesso PID</strong>, file aperti mantenuti; ritorna solo se fallisce.</li>
+  <li><strong>fork + exec (+ wait)</strong>: lanciare un altro programma mantenendo vivo il chiamante.</li>
+</ul></div>
+
+<div class="pager">
+  <a href="../index.html">← Indice</a>
+  <a href="L02-thread.html">L02 Thread →</a>
+</div>
+</main>
+</div>
+</body>
+</html>

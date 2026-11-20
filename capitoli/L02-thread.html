@@ -1,1 +1,304 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L02 · Thread</title>
+<link rel="stylesheet" href="../style/style.css">
+</head>
+<body>
+<div class="topbar"><div class="topbar-inner">
+  <a class="home" href="../index.html">← Appunti ACSO · Modulo 2</a>
+  <a href="L01-processi-parallelismo.html">L01 Processi</a>
+  <a class="active" href="L02-thread.html">L02 Thread</a>
+  <a href="L03-programmazione-concorrente.html">L03 Concorrenza</a>
+  <a href="L04-introduzione-linux.html">L04 Linux</a>
+</div></div>
 
+<div class="layout">
+<nav class="toc">
+  <h4>In questa lezione</h4>
+  <ol>
+    <li><a href="#cosa">1. Cos'è un thread</a></li>
+    <li><a href="#seq-conc">2. Sequenziale vs concorrente</a></li>
+    <li><a href="#granularita">3. Granularità</a></li>
+    <li><a href="#posix">4. Pthread POSIX</a></li>
+    <li><a href="#id">5. PID, TID e TGID</a></li>
+    <li><a href="#create">6. pthread_create</a></li>
+    <li><a href="#join">7. Terminazione e pthread_join</a></li>
+    <li><a href="#memoria">8. Condivisione memoria</a></li>
+    <li><a href="#esempi-var">9. Locale / globale / statica</a></li>
+    <li><a href="#parametri">10. Passaggio parametri</a></li>
+    <li><a href="#confronto">11. Thread vs processi</a></li>
+    <li><a href="#riassunto">Riassunto</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="lesson">
+  <div class="tag">Lezione 2</div>
+  <h1>Thread</h1>
+  <p class="sub">Cap. P2 delle dispense Pelagatti — cosa sono i thread, come si creano e terminano con la libreria pthread, e cosa condividono tra loro.</p>
+</header>
+
+<h2 id="cosa">1. Cos'è un thread</h2>
+<div class="box def"><span class="t">Definizione</span>
+Un <strong>thread</strong> è un <em>flusso di controllo</em> (cioè una sequenza di istruzioni eseguite una dopo l'altra) che può essere eseguito <strong>in parallelo</strong> con altri thread <strong>all'interno dello stesso processo</strong>.</div>
+<ul>
+  <li>Come i processi, i thread permettono a un programma di fare più cose <strong>in modo concorrente</strong>.</li>
+  <li>Un thread <strong>esiste solo dentro un processo</strong>. Quando lanci un programma, Linux crea un processo con <strong>un solo thread</strong> (il <em>thread principale</em>, cioè <code>main</code>), che esegue il programma in sequenza.</li>
+  <li>Quel thread può creare altri thread, che procedono in parallelo tra loro.</li>
+  <li>Il flusso di controllo di un thread è <strong>una funzione</strong>, che parte quando il thread viene creato.</li>
+  <li>Un thread è detto anche <strong>processo leggero</strong> (<em>lightweight process</em>) perché:
+    <ul>
+      <li>lo <strong>scambio di informazioni</strong> tra thread è facile (condividono la memoria);</li>
+      <li>per il SO gestire un thread <strong>costa meno</strong> che gestire un processo (meno strutture dati, meno lavoro).</li>
+    </ul>
+  </li>
+</ul>
+
+<h3>Cosa condividono i thread</h3>
+<p>I thread dello stesso processo condividono <strong>tutto lo spazio di indirizzamento</strong> del processo <strong>tranne la pila (stack)</strong>: ogni thread ha la sua pila. Per questo le variabili locali di una funzione eseguita da un thread appartengono solo a quel thread.</p>
+
+<figure>
+<svg viewBox="0 0 680 270" role="img" aria-label="Processo con tre thread: codice, dati globali e heap condivisi; una pila per ogni thread">
+  <rect x="10" y="10" width="660" height="250" rx="10" class="svg-box"/>
+  <text x="26" y="34" class="svg-text" font-size="15" font-weight="700">Processo (un solo spazio di indirizzamento)</text>
+  <rect x="30" y="50" width="300" height="190" rx="8" class="svg-acc"/>
+  <text x="46" y="74" class="svg-text" font-size="14" font-weight="600">CONDIVISO tra tutti i thread</text>
+  <rect x="48" y="88" width="264" height="36" rx="5" class="svg-box"/><text x="60" y="111" class="svg-text" font-size="13">Codice (testo del programma)</text>
+  <rect x="48" y="132" width="264" height="36" rx="5" class="svg-box"/><text x="60" y="155" class="svg-text" font-size="13">Dati: variabili globali e static</text>
+  <rect x="48" y="176" width="264" height="36" rx="5" class="svg-box"/><text x="60" y="199" class="svg-text" font-size="13">Heap (malloc), file aperti…</text>
+  <text x="360" y="74" class="svg-text" font-size="14" font-weight="600">PRIVATO di ogni thread</text>
+  <g>
+    <rect x="360" y="88" width="90" height="124" rx="6" class="svg-box"/>
+    <text x="405" y="112" text-anchor="middle" class="svg-text" font-size="13" font-weight="600">main</text>
+    <text x="405" y="140" text-anchor="middle" class="svg-muted" font-size="12">pila</text>
+    <text x="405" y="158" text-anchor="middle" class="svg-muted" font-size="12">var. locali</text>
+    <text x="405" y="176" text-anchor="middle" class="svg-muted" font-size="12">registri</text>
+  </g>
+  <g>
+    <rect x="465" y="88" width="90" height="124" rx="6" class="svg-box"/>
+    <text x="510" y="112" text-anchor="middle" class="svg-text" font-size="13" font-weight="600">thread 1</text>
+    <text x="510" y="140" text-anchor="middle" class="svg-muted" font-size="12">pila</text>
+    <text x="510" y="158" text-anchor="middle" class="svg-muted" font-size="12">var. locali</text>
+    <text x="510" y="176" text-anchor="middle" class="svg-muted" font-size="12">registri</text>
+  </g>
+  <g>
+    <rect x="570" y="88" width="90" height="124" rx="6" class="svg-box"/>
+    <text x="615" y="112" text-anchor="middle" class="svg-text" font-size="13" font-weight="600">thread 2</text>
+    <text x="615" y="140" text-anchor="middle" class="svg-muted" font-size="12">pila</text>
+    <text x="615" y="158" text-anchor="middle" class="svg-muted" font-size="12">var. locali</text>
+    <text x="615" y="176" text-anchor="middle" class="svg-muted" font-size="12">registri</text>
+  </g>
+</svg>
+<figcaption>Processo vs thread: un processo può contenere più thread; ognuno ha la propria pila, il resto è in comune.</figcaption>
+</figure>
+
+<div class="box note"><span class="t">Perché li studiamo</span>
+Non tanto per imparare l'API, ma per capire i <strong>problemi tipici della programmazione concorrente</strong> (che vedremo nella <a href="L03-programmazione-concorrente.html">Lezione 3</a>).</div>
+
+<h2 id="seq-conc">2. Esecuzione sequenziale vs concorrente</h2>
+<div class="grid2">
+  <div><h4>Sequenziale</h4>Date due attività A e B, guardando il codice <strong>posso prevedere a priori</strong> se A verrà sempre prima di B (o viceversa).</div>
+  <div><h4>Concorrente (parallela)</h4>Guardando il codice <strong>NON posso prevedere</strong> se A verrà sempre prima di B o B prima di A.</div>
+</div>
+<p>L'esecuzione concorrente può essere:</p>
+<ul>
+  <li><strong>Simulata</strong> — su un sistema <em>mono-processore</em>: i processi/thread si alternano sulla CPU a turno (<strong>time-sharing</strong>).</li>
+  <li><strong>Reale</strong> — su un sistema <em>multi-processore</em>: girano davvero contemporaneamente su CPU diverse.</li>
+</ul>
+<p>Per il programmatore <strong>il modello è lo stesso</strong> in entrambi i casi (il multi-processore va solo più veloce). E siccome di solito ci sono più thread che processori, anche su un multi-core il parallelismo è <strong>in parte simulato</strong>.</p>
+
+<h2 id="granularita">3. Granularità di un thread</h2>
+<p>La <strong>granularità</strong> è la quantità di istruzioni assegnata a ciascun thread:</p>
+<ul>
+  <li><strong>poche istruzioni</strong> → più adatta al multithreading su <em>mono-processore</em> (n thread, 1 CPU);</li>
+  <li><strong>centinaia/migliaia di istruzioni</strong> → più adatta al <em>multi-processore</em> (n thread, n CPU).</li>
+</ul>
+
+<h2 id="posix">4. Thread POSIX (pthread)</h2>
+<p>Ci sono vari modelli di thread; noi usiamo lo standard <strong>POSIX</strong> (<em>Portable Operating System Interface</em>):</p>
+<ul>
+  <li>è un insieme di <strong>API</strong> del sistema operativo;</li>
+  <li>usando solo le API POSIX il programma è <strong>portabile</strong> su tutti i SO che le adottano;</li>
+  <li>funzioni e tipi per i thread sono dichiarati in <code>&lt;pthread.h&gt;</code>;</li>
+  <li><strong>pthread</strong> = POSIX thread.</li>
+</ul>
+<h3>Pthread e processi</h3>
+<ul>
+  <li>Un thread viene attivato <strong>dentro</strong> un processo; un processo può attivarne uno o più.</li>
+  <li><strong>Quando il processo termina, terminano forzatamente tutti i suoi thread</strong>, ovunque si trovino.</li>
+  <li>Quindi bisogna garantire una <strong>terminazione coerente</strong>: il processo non deve finire prima che i suoi thread abbiano finito (→ <code>pthread_join</code>).</li>
+</ul>
+
+<h2 id="id">5. PID, Thread ID e TGID</h2>
+<p>Ogni pthread ha:</p>
+<ul>
+  <li>un <strong>thread ID</strong> di tipo <code>pthread_t</code> che lo identifica univocamente;</li>
+  <li>l'identificatore del <strong>processo</strong> che lo contiene, di tipo <code>pid_t</code>. <code>getpid()</code> chiamata da qualunque thread restituisce il PID del processo.</li>
+</ul>
+<p><strong>Il problema:</strong> internamente Linux dà un <em>PID diverso</em> a ogni processo, normale o leggero (cioè anche a ogni thread). Ma POSIX vuole che tutti i thread di un processo abbiano <em>lo stesso PID</em>. Soluzione: il <strong>Thread Group</strong>.</p>
+<div class="box def"><span class="t">Thread Group e TGID</span>
+<ul>
+  <li>Un <strong>Thread Group</strong> è l'insieme dei thread (processi leggeri) che appartengono allo stesso processo.</li>
+  <li>Il <strong>TGID</strong> (Thread Group ID) è uguale al PID del <strong>thread group leader</strong>, cioè il primo thread del processo (quello di default, <code>main</code>).</li>
+  <li>Un processo con un solo thread ha quindi <strong>TGID = PID</strong>.</li>
+</ul></div>
+<table>
+<tr><th></th><th><code>gettid()</code></th><th><code>getpid()</code></th></tr>
+<tr><td><strong>Processo single-thread</strong></td><td>thread ID = PID</td><td>PID del processo = TGID</td></tr>
+<tr><td><strong>Processo multi-thread</strong></td><td>thread ID, <strong>diverso per ogni thread</strong></td><td>PID del processo = TGID, <strong>uguale per tutti i thread</strong></td></tr>
+</table>
+<div class="box note"><span class="t">Da ricordare</span>
+Nella terminologia Linux: <code>getpid()</code> restituisce in realtà il <strong>TGID</strong>; <code>gettid()</code> restituisce il "PID interno" del singolo thread.</div>
+
+<h2 id="create">6. Creazione: <code>pthread_create</code></h2>
+<p><code>pthread_create()</code> è l'analogo di <code>fork()</code>, con una differenza importante: al thread si passa <strong>il nome della funzione da eseguire</strong> (la <em>thread function</em>). Il nuovo thread parte <strong>sempre dall'inizio di quella funzione</strong>, qualunque sia il punto in cui si trova il creatore (con <code>fork</code> invece il figlio riparte dallo stesso punto del padre).</p>
+<pre><code>pthread_create(&amp;tID1, NULL, &amp;tf1, (void *) n);</code></pre>
+<table>
+<tr><th>#</th><th>Parametro</th><th>Significato</th></tr>
+<tr><td>1</td><td><code>&amp;tID1</code></td><td>indirizzo di una variabile <code>pthread_t</code> dove verrà scritto l'ID del thread creato</td></tr>
+<tr><td>2</td><td><code>NULL</code></td><td>puntatore agli attributi; <code>NULL</code> = attributi di default</td></tr>
+<tr><td>3</td><td><code>&amp;tf1</code></td><td>indirizzo della funzione che il thread eseguirà</td></tr>
+<tr><td>4</td><td><code>(void *) n</code></td><td>argomento passato alla funzione: <strong>uno solo</strong>, di tipo <code>void *</code>. Per passarne di più si crea una <code>struct</code> e se ne passa l'indirizzo</td></tr>
+</table>
+
+<h3>Thread principale</h3>
+<ul>
+  <li>Quando un eseguibile viene lanciato, nel processo c'è un solo thread: il <strong>thread principale</strong> (o di default), cioè <code>main()</code>.</li>
+  <li><code>main</code> può creare altri thread con <code>pthread_create</code>, e qualsiasi thread può crearne a sua volta.</li>
+  <li>Appena un thread nuovo viene creato, creatore e creato sono <strong>in esecuzione concorrente</strong>.</li>
+</ul>
+
+<h2 id="join">7. Terminazione: <code>pthread_join</code></h2>
+<ul>
+  <li>Un thread termina quando esegue <code>return</code> o quando arriva alla fine della sua funzione.</li>
+  <li>Con il <code>return</code> può restituire un <strong>codice di terminazione</strong> (exit code) a chi lo ha creato: è semplicemente il valore restituito dalla thread function.</li>
+  <li>Il valore viene consegnato <strong>se e quando</strong> il creatore esegue <code>pthread_join</code>, che è l'analogo di <code>waitpid()</code>: aspetta la terminazione di <strong>uno specifico thread</strong> (va sempre indicato quale).</li>
+</ul>
+<pre><code>pthread_join(tID1, (void *) &amp;thread_exit);</code></pre>
+<ol>
+  <li><code>tID1</code>: il <code>pthread_t</code> del thread di cui attendere la fine;</li>
+  <li>puntatore alla variabile che riceverà il codice di terminazione (<code>NULL</code> se non interessa).</li>
+</ol>
+<pre><code><span class="c">// struttura tipica di una thread function</span>
+<span class="k">void</span> * tf1 (<span class="k">void</span> * arg) {
+   <span class="c">// codice della funzione</span>
+   <span class="k">return</span> (<span class="k">void</span> *) valore_di_ritorno;
+}</code></pre>
+
+<h3>Esempio base</h3>
+<pre><code><span class="k">#include</span> &lt;pthread.h&gt;
+<span class="k">#include</span> &lt;stdio.h&gt;
+
+<span class="k">void</span> * tf1 (<span class="k">void</span> * tID) {
+   <span class="k">int</span> conta = 0;          <span class="c">/* variabile locale */</span>
+   conta++;
+   printf("sono il thread n: %d; conta = %d\n", (<span class="k">int</span>) tID, conta);
+   <span class="k">return</span> NULL;
+}
+
+<span class="k">int</span> main (<span class="k">void</span>) {
+   pthread_t tID1, tID2;
+   pthread_create(&amp;tID1, NULL, &amp;tf1, (<span class="k">void</span> *) 1);  <span class="c">/* genera tID1 */</span>
+   pthread_create(&amp;tID2, NULL, &amp;tf1, (<span class="k">void</span> *) 2);  <span class="c">/* genera tID2 */</span>
+   pthread_join(tID1, NULL);
+   pthread_join(tID2, NULL);   <span class="c">/* main aspetta entrambi prima di uscire */</span>
+   <span class="k">return</span> 0;
+}</code></pre>
+<p>Entrambi i thread eseguono <strong>la stessa funzione</strong> <code>tf1</code>, ma con argomento diverso (1 e 2). Il numero viene "infilato" nel puntatore con un cast <code>(void *) 1</code> e ricavato con <code>(int) tID</code>.</p>
+
+<h2 id="memoria">8. Thread e condivisione della memoria</h2>
+<ul>
+  <li>Un thread gira nello spazio di indirizzamento del processo che l'ha creato → <strong>tutti i thread vedono la stessa memoria</strong>.</li>
+  <li><strong>Ma</strong> ogni thread ha la <strong>propria pila</strong>, collocata a un indirizzo diverso dentro lo stesso spazio di indirizzamento:
+    <ul>
+      <li><strong>variabili locali</strong> → allocate sulla pila → <strong>private</strong> del thread;</li>
+      <li><strong>variabili globali e <code>static</code></strong> → stanno nel segmento dati → <strong>condivise</strong> da tutti i thread.</li>
+    </ul>
+  </li>
+</ul>
+<div class="box warn"><span class="t">Attenzione</span>
+La condivisione rende facile scambiarsi dati, ma rende <strong>più difficile garantire che il programma sia corretto</strong>: due thread possono modificare la stessa variabile "insieme". È il tema della Lezione 3.</div>
+
+<h2 id="esempi-var">9. Esempi: variabile locale, globale, statica</h2>
+<p>Stesso programma di prima (due thread che eseguono <code>tf1</code>), cambiando solo dove è dichiarata <code>conta</code>:</p>
+
+<table>
+<tr><th>Dichiarazione di <code>conta</code></th><th>Dove sta</th><th>Output possibili</th></tr>
+<tr>
+  <td><code>int conta = 0;</code><br>dentro <code>tf1</code> (locale)</td>
+  <td>pila di ciascun thread → <strong>due copie</strong></td>
+  <td><pre style="margin:0"><code>sono thread n: 1; conta = 1
+sono thread n: 2; conta = 1</code></pre>oppure prima il 2 poi l'1, ma <strong>sempre conta = 1</strong></td>
+</tr>
+<tr>
+  <td><code>int conta = 0;</code><br>fuori da tutte le funzioni (globale)</td>
+  <td>segmento dati → <strong>una sola copia</strong> condivisa</td>
+  <td><pre style="margin:0"><code>sono thread n: 1; conta = 1
+sono thread n: 2; conta = 2</code></pre>oppure <code>2 → conta = 1</code>, <code>1 → conta = 2</code></td>
+</tr>
+<tr>
+  <td><code>static int conta = 0;</code><br>dentro <code>tf1</code></td>
+  <td>segmento dati → <strong>una sola copia</strong> condivisa</td>
+  <td>come la globale: chi arriva primo stampa 1, il secondo stampa 2</td>
+</tr>
+</table>
+
+<div class="box def"><span class="t">Variabile <code>static</code> locale</span>
+È dichiarata dentro la funzione (quindi è <strong>visibile solo lì</strong>), ma <strong>conserva il valore</strong> tra una chiamata e l'altra perché non sta sulla pila. In pratica funziona <strong>come una globale ma con visibilità locale</strong>: quindi è condivisa tra i thread.</div>
+<p>Nota: l'ordine delle due righe stampate non è prevedibile (esecuzione concorrente). Inoltre, nei casi globale/statica, <code>conta++</code> su dato condiviso è proprio il tipo di operazione che può dare problemi (vedi <a href="L03-programmazione-concorrente.html#atomiche">istruzioni atomiche</a>).</p>
+
+<h2 id="parametri">10. Passaggio di parametri e valore di ritorno</h2>
+<pre><code><span class="k">#include</span> &lt;pthread.h&gt;
+<span class="k">#include</span> &lt;stdio.h&gt;
+
+<span class="k">void</span> *tf (<span class="k">void</span> *arg) {
+   <span class="k">int</span> i = * ((<span class="k">int</span> *) arg);   <span class="c">// cast: void* → int*, poi dereferenzio</span>
+   printf("sono thread_function: valore argomento = %d\n", i);
+   i++;
+   <span class="k">return</span> (<span class="k">void</span> *) i;          <span class="c">// exit code = 11</span>
+}
+
+<span class="k">int</span> main (<span class="k">void</span>) {
+   <span class="k">int</span> argomento = 10;
+   <span class="k">int</span> thread_exit;
+   pthread_t tID1;
+   pthread_create(&amp;tID1, NULL, &amp;tf, &amp;argomento);   <span class="c">// passo l'INDIRIZZO di argomento</span>
+   pthread_join(tID1, (<span class="k">void</span> *) &amp;thread_exit);     <span class="c">// ricevo il valore di ritorno</span>
+   printf("sono il main: thread_exit = %d\n", thread_exit);
+   <span class="k">return</span> 0;
+}</code></pre>
+<p>Output:</p>
+<pre><code>sono thread_function: valore argomento = 10
+sono il main: thread_exit = 11</code></pre>
+<p>Qui l'ordine è <strong>deterministico</strong>: il main stampa solo dopo la <code>join</code>, cioè dopo che il thread è terminato.</p>
+
+<h2 id="confronto">11. Thread vs processi: quando usare cosa</h2>
+<table>
+<tr><th>Aspetto</th><th>Thread</th><th>Processo</th><th>Chi vince</th></tr>
+<tr><td><strong>Efficienza</strong></td><td>niente copia della memoria</td><td>creare un processo richiede copiare/gestire memoria: più costoso</td><td>Thread</td></tr>
+<tr><td><strong>Protezione</strong></td><td>un thread con errori può danneggiare gli altri thread dello stesso processo</td><td>spazi di indirizzamento separati: un processo non può danneggiarne un altro</td><td>Processo</td></tr>
+<tr><td><strong>Flessibilità</strong></td><td>può eseguire solo la funzione associata</td><td>il figlio può sostituire tutto il programma con <code>exec</code></td><td>Processo</td></tr>
+<tr><td><strong>Condivisione dati</strong></td><td>semplicissima (memoria comune)</td><td>complicata: servono meccanismi IPC</td><td>Thread</td></tr>
+</table>
+
+<h2 id="riassunto">Riassunto</h2>
+<div class="summary"><ul>
+  <li>Thread = flusso di controllo dentro un processo; condivide tutto tranne la <strong>pila</strong>.</li>
+  <li>Concorrente = l'ordine tra due attività <strong>non è prevedibile</strong> dal codice; parallelismo simulato (time-sharing) o reale (multi-core).</li>
+  <li><code>pthread_create(&amp;tid, NULL, funzione, arg)</code> ≈ <code>fork</code>, ma il thread parte dall'inizio della funzione; un solo argomento <code>void *</code>.</li>
+  <li><code>pthread_join(tid, &amp;ret)</code> ≈ <code>waitpid</code>; serve a non far terminare il processo prima dei thread e a raccogliere il valore di ritorno.</li>
+  <li><code>getpid()</code> = TGID (uguale per tutti i thread del processo), <code>gettid()</code> = ID del singolo thread.</li>
+  <li>Variabili <strong>locali</strong>: private. <strong>Globali e static</strong>: condivise → possibili interferenze.</li>
+</ul></div>
+
+<div class="pager">
+  <a href="L01-processi-parallelismo.html">← L01 Processi e parallelismo</a>
+  <a href="L03-programmazione-concorrente.html">L03 Programmazione concorrente →</a>
+</div>
+</main>
+</div>
+</body>
+</html>
